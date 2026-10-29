@@ -1,6 +1,6 @@
 # TradingBot AI (MT5)
 
-Bot trading otomatis Windows untuk MetaTrader 5 (XAUUSD, EURUSD): beberapa AI (Claude + OpenAI) menganalisa, order hanya dieksekusi jika semua setuju dan lolos batas risiko. Tahap awal: akun demo.
+Bot trading otomatis Windows untuk MetaTrader 5 (XAUUSD, EURUSD): beberapa model AI (Claude + OpenAI) menganalisa dengan strategi diskresi penuh dan belajar dari pelajaran terkendali, order hanya dieksekusi jika semua setuju dan lolos batas risiko. Kejadian kritis dikirim ke Telegram dan bot diawasi watchdog. Tahap awal: akun demo.
 
 ## Dokumen Proyek (sumber kebenaran)
 Baca sebelum bekerja. Jangan menebak jika dokumen tidak menjelaskan; tanyakan.
@@ -26,6 +26,7 @@ Baca sebelum bekerja. Jangan menebak jika dokumen tidak menjelaskan; tanyakan.
 ## Perintah
 - Install: `pip install -e .[dev]`
 - Jalankan bot + dashboard: `python -m tradingbot`
+- Jalankan lewat watchdog: `python -m tradingbot.watchdog` (atau `start.bat`)
 - Test: `pytest`
 - Lint: `ruff check .` dan `ruff format .`
 - Build: tidak ada
@@ -36,5 +37,7 @@ Baca sebelum bekerja. Jangan menebak jika dokumen tidak menjelaskan; tanyakan.
 - Mode default dan fallback selalu `demo`. Jangan pernah mengubah/mengaktifkan mode `live` dari kode atau tes; penjaga live (TRD bagian 5) tidak boleh dilemahkan.
 - Jangan kirim order tanpa SL dan TP. Lot dihitung kode, bukan AI.
 - Bot hanya mengelola posisi dengan magic number bot; posisi lain di akun tidak boleh disentuh.
-- `MetaTrader5` hanya boleh dipanggil dari `src/tradingbot/broker/mt5.py`; tes memakai `MockBroker` dan AI palsu (tanpa API key, tanpa uang).
-- Semua waktu disimpan UTC. Tidak ada SQL mentah tanpa parameter. Tidak ada API key di log.
+- Pelajaran AI (F-08) hanya boleh memperketat keputusan dan efeknya diterapkan kode; tidak pernah mengubah batas risiko, lot, SL/TP, kill switch, atau rem tambahan.
+- Teks bebas keluaran AI (rationale, refleksi, catatan penentang) tidak pernah dimasukkan ke prompt mana pun; teks pelajaran dibuat kode dari template.
+- `MetaTrader5` hanya boleh dipanggil dari `src/tradingbot/broker/mt5.py` lewat thread pekerja (`broker/worker.py`); order hanya lewat kunci eksekusi dengan cek idempotensi. Tes memakai `MockBroker`, AI palsu, dan `FakeClock` (tanpa API key, tanpa uang).
+- Semua waktu disimpan UTC dan logika waktu lewat `Clock`. Baseline dan penghitung rem dihitung dari riwayat deal/database, bukan memori. Tidak ada SQL mentah tanpa parameter. Tidak ada API key/token di log atau pesan Telegram (pesan juga tanpa saldo nominal).

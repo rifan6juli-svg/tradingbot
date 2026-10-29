@@ -1,6 +1,6 @@
 # DBD - TradingBot AI (MT5)
 
-> Versi: 0.1 | Diperbarui: 2026-10-29 | Merujuk: PRD.md, AFD.md
+> Versi: 0.5 | Diperbarui: 2026-10-29 | Merujuk: PRD.md, AFD.md
 
 ## 1. Karakter Brand
 - Kata kunci: tenang, jelas, tepercaya.
@@ -42,20 +42,22 @@ Arah buy/sell tidak boleh dibedakan hanya lewat warna: selalu sertakan teks "BUY
 | Input | number, text, select, toggle | default, focus, error, disabled |
 | Card (statistik) | angka besar + label + delta | default, loading (skeleton), error |
 | Tabel data | rapat, baris dapat diperluas | default, kosong, loading, error |
-| Badge | mode (DEMO/LIVE), arah (BUY/SELL/HOLD), status (open/closed/rejected/blocked/skip) | -- |
-| Banner | info, warning, danger | tampil/tutup (danger terkait kill switch tidak bisa ditutup) |
+| Badge | mode (DEMO/LIVE), arah (BUY/SELL/HOLD), status (open/closed/rejected/blocked/skip), status pelajaran (pending/active/rejected/disabled/expired/rolled_back), kesehatan AI (OK/TIDAK SEHAT), hasil hipotetis (TP/SL/TIMEOUT) | -- |
+| Banner | info, warning (tidak ada entry N hari), danger (kill switch, bot tidak merespons/tidak terjangkau, AI tidak sehat) | tampil/tutup (danger tidak bisa ditutup selama kondisinya masih ada) |
 | Dialog konfirmasi | untuk kill switch, reset, tutup semua (panic) | default, loading |
 | Toast | sukses, error | muncul 4 detik |
 | Navigasi | bilah atas (5 menu) + tombol kill switch | aktif, hover, focus |
+| Panel blokir aktif | daftar alasan + waktu berakhir (jam lokal, UTC di tooltip) | kosong ("Tidak ada blokir aktif"), ada blokir |
+| Tabel scorecard | per model + kalibrasi confidence | default, kosong, loading, error |
 
 ### Pemetaan layar ke komponen
 | Layar | Komponen utama |
 |---|---|
-| S-01 Dashboard | Card statistik (saldo, equity, P/L hari ini), Badge mode, Tabel posisi terbuka, Tabel sinyal terakhir, Banner, tombol Kill switch + Dialog |
-| S-02 Sinyal & Opini AI | Tabel data (baris dapat diperluas), Badge arah/status, Input select filter simbol |
+| S-01 Dashboard | Card statistik (saldo, equity, P/L hari ini, panggilan/biaya AI hari ini), Badge mode, Panel blokir aktif ("Kenapa bot tidak trading"), Badge kesehatan AI per model, Tabel posisi terbuka, Tabel sinyal terakhir, daftar `risk_events`, Banner, tombol Kill switch + Dialog |
+| S-02 Sinyal & Opini AI | Tabel data (baris dapat diperluas: arah asli vs final, alasan), Badge arah/status, Badge hasil hipotetis, Input select filter simbol |
 | S-03 Posisi & Riwayat | Tabel data dengan tab Terbuka/Riwayat, Badge status, tautan ke S-02 |
-| S-04 Risiko & Pengaturan | Input number/toggle/select, select kandidat simbol broker (`symbol_map`), daftar model AI (`ai_models`: tambah/aktif/nonaktif), Button simpan, Button danger "Tutup semua sekarang", Dialog konfirmasi (kill switch, reset, panic), Toast |
-| S-05 Jurnal & Performa | Card statistik, Tabel harian/mingguan, blok ringkasan AI, indikator progres kelayakan live |
+| S-04 Risiko & Pengaturan | Input number/toggle/select, select kandidat simbol broker (`symbol_map`), daftar model AI (`ai_models`: beberapa model per penyedia, tambah/aktif/nonaktif), toggle `lessons_enabled` dan `lessons_frozen`, pengaturan rem tambahan, tabel harga AI (`ai_price_table`), tabel riwayat perubahan (`settings_changes`), Button "Kirim tes" notifikasi, Button simpan, Button danger "Tutup semua sekarang", Dialog konfirmasi (kill switch, reset, panic), Toast |
+| S-05 Jurnal & Performa | Card statistik, Tabel harian/mingguan, blok ringkasan AI, indikator progres kelayakan live, Tabel scorecard model + kalibrasi confidence, Tabel pelajaran per model (Badge status, kondisi, efek, bukti, catatan penentang, sinyal yang dibatalkan + hasil hipotetisnya), riwayat `prompt_versions` |
 
 ## 4. Responsivitas
 | Breakpoint | Lebar | Perilaku layout |
@@ -86,3 +88,4 @@ Pendekatan: desktop-first (dipakai di PC Windows), tetap tidak pecah di layar ke
 | Kill switch selalu terlihat dan butuh konfirmasi | Menaruh aksi destruktif tanpa konfirmasi |
 | Angka rata kanan, tabular, dengan satuan | Angka tanpa satuan atau pembulatan acak |
 | Tandai data usang (>30 detik) dengan warna warning + teks | Menampilkan data lama seolah terkini |
+| Tampilkan jam lokal browser dengan UTC di tooltip | Mencampur zona waktu tanpa label |
