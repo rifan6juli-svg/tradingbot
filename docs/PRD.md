@@ -21,6 +21,10 @@ Bot trading otomatis untuk Windows yang terhubung ke MetaTrader 5. Beberapa mode
 
 "Sudah jadi" = semua fitur P0 lolos di akun demo, dan metrik di atas tercapai sebelum mode live boleh dipertimbangkan.
 
+Definisi:
+- Max drawdown: penurunan terbesar dari puncak ke lembah pada kurva balance (trade tertutup) sejak uji demo dimulai, dalam % dari puncak.
+- Pelanggaran batas risiko: tindakan bot yang melanggar aturan (lot melebihi target risiko, posisi melebihi batas, entry saat kill switch/guard aktif). Rugi melebihi SL karena gap pasar atau slippage (risiko yang diterima owner) dicatat terpisah, bukan pelanggaran.
+
 ## 4. Pengguna
 | Peran | Deskripsi | Kebutuhan utama |
 |---|---|---|
@@ -47,40 +51,42 @@ Prioritas: P0 = wajib rilis, P1 = sebaiknya ada, P2 = jika sempat.
 - [ ] Mengambil >= 300 candle terakhir untuk M15 dan H1 per simbol (XAUUSD, EURUSD).
 - [ ] Nama simbol broker fleksibel: tiap simbol kanonik (`XAUUSD`, `EURUSD`) dipetakan ke nama broker lewat `symbol_map` (mis. `XAUUSDm`, `GOLD`). Saat start, bot mencari kandidat di MT5 dan mengusulkan pemetaan; owner mengonfirmasi/mengubahnya di S-04. Bot menolak start jika simbol belum terpetakan.
 - [ ] Saat start, bot memeriksa: Algo Trading aktif di terminal, akun bertipe **hedging** (netting ditolak), dan mode pengisian order (`filling_mode`) yang didukung simbol; gagal salah satu -> bot menolak start dengan pesan jelas.
+- [ ] Akun MT5 dipakai khusus untuk bot. Bot hanya mengelola posisi dengan magic number bot; posisi lain (manual) diabaikan dan tidak diambil alih, tetapi tetap terhitung di equity untuk batas rugi harian (konservatif).
 - [ ] Kasus gagal: terminal mati/putus -> coba sambung ulang tiap 10 detik (5 kali), lalu tiap 60 detik tanpa batas; status "terputus" di dashboard; tidak ada order dikirim selama terputus; otomatis lanjut saat tersambung kembali (posisi tetap terlindungi SL/TP di server broker).
 
 **F-02 Analisa teknikal & filter berita**
 - [ ] Menghitung EMA 20/50/200, RSI 14, ATR 14, MACD, serta level swing high/low terakhir, pada M15 dan H1.
 - [ ] Kalender ekonomi high-impact (mata uang terkait simbol; USD untuk XAUUSD) diambil minimal tiap 6 jam dan disimpan. Sumber lewat `NewsProvider` yang dapat diganti (default: feed JSON Forex Factory mingguan yang tidak resmi); owner juga bisa menambah jendela blokir manual (`manual_blackouts`) untuk berita penting.
-- [ ] Tidak ada entry baru dari 30 menit sebelum sampai 30 menit sesudah berita high-impact terkait.
-- [ ] Kasus gagal: data kalender lebih tua dari 24 jam atau gagal diambil -> entry diblokir (fail-safe), tercatat di `risk_events`.
+- [ ] Tidak ada entry baru dari `news_block_minutes` (default 30) menit sebelum sampai sesudah berita high-impact terkait.
+- [ ] Kasus gagal: data kalender lebih tua dari 24 jam, gagal diambil, atau tidak mencakup rentang `now ± news_block_minutes` (mis. di pergantian minggu) -> entry diblokir (fail-safe), tercatat di `risk_events`.
 
 **F-03 Panel multi-AI & konsensus**
-- [ ] Setiap candle M15 yang ditutup, untuk tiap simbol, bot mengirim paket fitur pasar ke Claude dan OpenAI secara paralel.
-- [ ] Setiap AI wajib membalas JSON terstruktur: `direction` (buy/sell/hold), `confidence` (0-1), `sl_price`, `tp_price`, `rationale`.
-- [ ] Claude dan OpenAI sama-sama didukung; ID model tiap penyedia dapat diatur (`.env`/pengaturan), dan tiap penyedia dapat diaktifkan/dinonaktifkan. Penyedia baru bisa ditambahkan tanpa mengubah logika konsensus.
-- [ ] Konsensus "eksekusi" hanya jika SEMUA model aktif: arah sama (bukan hold) dan `confidence` >= `min_confidence` (default 0.6), dengan jumlah model aktif >= `min_ai_models` (minimal 2, tidak bisa diturunkan).
+- [ ] Setiap candle M15 yang ditutup, untuk tiap simbol yang lolos guard F-04, bot mengirim paket fitur pasar (termasuk batas `sl_atr_min`/`sl_atr_max` dan `min_rr`) ke semua model aktif secara paralel.
+- [ ] Setiap AI wajib membalas JSON terstruktur: `direction` (buy/sell/hold), `confidence` (0-1), `sl_price`, `tp_price`, `rationale`. `sl_price`/`tp_price` wajib untuk buy/sell dan boleh kosong untuk hold. SL/TP di sisi yang salah (mis. SL di atas harga untuk buy) -> opini tidak valid (dihitung tidak setuju).
+- [ ] Claude dan OpenAI sama-sama didukung. Daftar model diatur di `ai_models` (penyedia, ID model, aktif/nonaktif), boleh lebih dari satu model per penyedia. Penyedia baru bisa ditambahkan tanpa mengubah logika konsensus.
+- [ ] Konsensus "eksekusi" hanya jika SEMUA model aktif: arah sama (bukan hold) dan `confidence` >= `min_confidence` (default 0.6), dengan jumlah model aktif >= `min_ai_models` (minimal 2, tidak bisa diturunkan, dan tidak boleh melebihi jumlah model aktif).
 - [ ] Setiap panggilan AI memakai temperature rendah yang tetap dan mencatat `prompt_version`, agar keputusan dapat diaudit.
 - [ ] Kasus gagal: satu model timeout (> 30 detik), error, atau JSON tidak valid -> dihitung tidak setuju, hasil `skip`, error tersimpan.
 - [ ] Setiap sinyal dan tiap opini AI tersimpan lengkap dengan alasan.
 
 **F-04 Manajemen risiko & kill switch**
-- [ ] Lot = uang risiko / ((jarak SL / `tick_size`) x `tick_value` + komisi per lot), dengan uang risiko = balance x `risk_per_trade_pct`. Selalu **dibulatkan ke bawah** ke `volume_step`, dibatasi `volume_max`; jika < `volume_min` -> diblokir (`lot_too_small`), tidak pernah dinaikkan.
-- [ ] Default: risiko 0.5% per trade, maks rugi harian 2%, maks 2 posisi terbuka total, maks 1 posisi per simbol.
+- [ ] Lot = uang risiko / ((jarak SL / `tick_size`) x `tick_value_loss` + 2 x `commission_per_lot`), dengan uang risiko = balance x `risk_per_trade_pct`. Selalu **dibulatkan ke bawah** ke `volume_step`, dibatasi `volume_max`; jika < `volume_min` -> diblokir (`lot_too_small`), tidak pernah dinaikkan.
+- [ ] Default: risiko 0.5% per trade, maks rugi harian 2%, maks 2 posisi terbuka total, maks 1 posisi per simbol (dikunci).
+- [ ] Pengaturan ditolak jika `risk_per_trade_pct` x `max_open_positions` > `max_daily_loss_pct` (risiko terbuka tidak boleh melebihi batas harian).
 - [ ] SL/TP divalidasi: jarak SL `sl_atr_min`-`sl_atr_max` x ATR (default 0.8-3.0), rasio reward:risk >= `min_rr` (default 1.5); di luar itu -> sinyal diblokir.
-- [ ] Validasi SL/TP dan perhitungan lot diulang memakai bid/ask terbaru tepat sebelum order dikirim; jika harga sudah melewati SL/TP atau tidak lagi valid -> diblokir (`invalid_sltp`).
-- [ ] Blokir entry jika spread > batas per simbol, atau di luar sesi trading (default 07:00-20:00 UTC).
-- [ ] Jika rugi harian (realized + floating, dari balance awal hari) mencapai batas -> kill switch aktif otomatis: tidak ada entry baru sampai hari berikutnya (UTC) atau direset manual. Perlakuan posisi terbuka diatur `kill_switch_mode`:
+- [ ] Validasi spread, SL/TP, dan perhitungan lot diulang memakai bid/ask terbaru tepat sebelum order dikirim (dan sebelum retry); jika harga sudah melewati SL/TP atau tidak lagi valid -> diblokir (`invalid_sltp`).
+- [ ] Blokir entry jika spread > batas per simbol, di luar sesi trading (default 07:00-20:00 UTC), atau pasar simbol sedang tutup/libur (`market_closed`).
+- [ ] Rugi harian = (`start_balance` - equity sekarang) / `start_balance`, dengan `start_balance` = balance pada 00:00 UTC (mencakup realized hari ini + floating semua posisi). Jika rugi harian mencapai batas -> kill switch aktif otomatis: tidak ada entry baru sampai hari berikutnya (UTC) atau direset manual. Perlakuan posisi terbuka diatur `kill_switch_mode`:
   - `protect_winners` (default): posisi rugi ditutup; posisi yang sedang untung tidak ditutup paksa, SL-nya dikunci minimal breakeven + buffer, trailing tetap berjalan sampai kena SL/TP. Jika SL tersebut tidak bisa dipasang secara valid (di atas bid untuk BUY / di bawah ask untuk SELL, atau melanggar `stops_level`/`freeze_level`), posisi ditutup.
   - `close_all`: semua posisi ditutup segera.
 - [ ] Tombol kill switch manual di dashboard memakai `kill_switch_mode` yang sama; tersedia juga tombol terpisah "Tutup semua sekarang" (panic) yang selalu menutup semua posisi.
 
 **F-05 Eksekusi order & manajemen posisi**
 - [ ] Order market dikirim dengan SL dan TP terpasang sejak awal; magic number khusus bot.
-- [ ] Pada +1R, SL digeser ke breakeven + buffer (spread + komisi per lot + `breakeven_buffer_points`, agar keluar di breakeven tidak rugi); setelah +1.5R, trailing stop berjarak 1 x ATR. SL hanya bergerak ke arah menguntungkan. Setiap modifikasi SL wajib menghormati `stops_level`/`freeze_level` broker.
+- [ ] Pada +1R, SL digeser ke breakeven + buffer. Buffer = komisi pulang-pergi (2 x `commission_per_lot`, dikonversi ke jarak harga) + `breakeven_buffer_points` (cadangan slippage/swap). Spread tidak dimasukkan karena sudah terbayar saat entry (BUY masuk di ask, SL-nya terpicu di bid); setelah +1.5R, trailing stop berjarak 1 x ATR. SL hanya bergerak ke arah menguntungkan. Setiap modifikasi SL wajib menghormati `stops_level`/`freeze_level` broker.
 - [ ] Posisi dibiarkan terbuka melewati rollover dan akhir pekan, hanya dilindungi SL/TP (keputusan owner; lihat Risiko).
 - [ ] Status posisi di database selalu sinkron dengan MT5 (rekonsiliasi tiap siklus dan saat startup).
-- [ ] Kasus gagal: order ditolak broker/requote -> maks 1 retry, jika tetap gagal tercatat `rejected`, tidak diulang pada candle yang sama.
+- [ ] Kasus gagal: order ditolak broker/requote -> maks 1 retry setelah validasi ulang harga, jika tetap gagal tercatat `rejected`, tidak diulang pada candle yang sama.
 - [ ] Mode `live` hanya jalan jika semua penjaga lolos (lihat TRD bagian 5); default dan paksa `demo`.
 
 **F-06 Dashboard web lokal**
@@ -97,7 +103,7 @@ Prioritas: P0 = wajib rilis, P1 = sebaiknya ada, P2 = jika sempat.
 ## 6. Di Luar Scope (jangan dikerjakan)
 - Pasar selain forex/emas di MT5 (kripto, saham), instrumen selain XAUUSD dan EURUSD.
 - Backtesting engine, optimasi parameter otomatis, machine learning/training sendiri.
-- Pending order (limit/stop), hedging, grid, martingale, averaging down.
+- Pending order (limit/stop), membuka posisi berlawanan pada simbol yang sama (strategi hedging; berbeda dengan tipe akun hedging yang diwajibkan F-01), grid, martingale, averaging down.
 - Multi-akun, multi-user, login, akses dashboard dari jaringan/internet.
 - Notifikasi Telegram/email/push; aplikasi mobile.
 - Eksekusi di akun live selama kriteria demo belum terpenuhi dan belum disetujui eksplisit oleh owner.
@@ -113,6 +119,7 @@ Prioritas: P0 = wajib rilis, P1 = sebaiknya ada, P2 = jika sempat.
 ## 8. Asumsi, Risiko, Dependensi
 - [ASUMSI] Broker menyediakan emas dan EURUSD dengan nama apa pun; pemetaan lewat `symbol_map` (F-01).
 - [ASUMSI] Pengguna sudah punya akun demo MT5 dan API key Anthropic + OpenAI.
+- Akun MT5 khusus bot (keputusan owner); trade manual tidak dilakukan di akun yang sama.
 - Kalender ekonomi: default feed JSON mingguan Forex Factory (`nfs.faireconomy.media`), gratis tetapi **tidak resmi**, tanpa jaminan layanan, hanya minggu berjalan. Bisa mati/berubah tanpa pemberitahuan; karena itu ada fail-safe, provider yang dapat diganti, dan jendela blokir manual. Belum diverifikasi dari lingkungan pengembangan ini (jaringan diblokir); diuji di langkah 7.
 - [ASUMSI] Model dipanggil hanya saat candle M15 ditutup (bukan tiap tick) untuk mengendalikan biaya API; estimasi ~210 panggilan/hari (2 simbol x ~52 candle dalam sesi 07:00-20:00 UTC x 2 model, lebih sedikit karena guard memblokir sebelum AI dipanggil).
 - Kill switch: lihat F-04 (`protect_winners` default, `close_all` opsional).

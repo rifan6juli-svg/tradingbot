@@ -88,7 +88,7 @@ pyproject.toml
   3. Tipe akun MT5 = real (`account_info.trade_mode`) konsisten dengan mode
   4. Default dan fallback selalu `demo`; ketidakcocokan -> bot berhenti dan mencatat `risk_events.type = 'live_guard'`.
 - Data sensitif: API key & token hanya di `.env` (di-gitignore); log disaring dari key.
-- Sumber konfigurasi: tabel `settings` adalah sumber kebenaran runtime; nilai `.env` (mis. `ANTHROPIC_MODEL`, `OPENAI_MODEL`, `NEWS_PROVIDER`) hanya dipakai sebagai nilai awal saat seed. Secret (API key, token, `LIVE_ENABLED`) hanya di `.env`, tidak pernah di `settings`.
+- Sumber konfigurasi: tabel `settings` adalah sumber kebenaran runtime; nilai `.env` (`ANTHROPIC_MODEL` dan `OPENAI_MODEL` -> isi awal `ai_models`; `NEWS_PROVIDER`) hanya dipakai sebagai nilai awal saat seed. Secret (API key, token, `LIVE_ENABLED`) hanya di `.env`, tidak pernah di `settings`.
 - Secrets: lewat environment variable, daftar di `.env.example`: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_MODEL` (contoh `claude-sonnet-5-5`), `OPENAI_MODEL` (wajib diisi owner), `NEWS_PROVIDER`, `MT5_PATH` (opsional), `DASHBOARD_TOKEN`, `LIVE_ENABLED`, `DB_PATH`.
 
 ## 5a. Aturan Broker MT5
@@ -96,12 +96,18 @@ pyproject.toml
 - Algo Trading terminal wajib aktif (`terminal_info.trade_allowed`); jika tidak -> tolak start dengan pesan.
 - `type_filling` order dipilih dari `symbol_info.filling_mode` (FOK/IOC/RETURN), bukan dikodekan tetap.
 - Setiap SL/TP baru (order maupun modifikasi) divalidasi terhadap `trade_stops_level` dan `trade_freeze_level`.
-- Lot dihitung dengan `trade_tick_size`, `trade_tick_value`, komisi per lot (pengaturan), dibulatkan ke bawah ke `volume_step`.
+- Lot dihitung dengan `trade_tick_size`, `trade_tick_value_loss`, dan 2 x `commission_per_lot` (pulang-pergi), dibulatkan ke bawah ke `volume_step`.
+- Buffer breakeven (jarak harga) = 2 x `commission_per_lot` x `trade_tick_size` / `trade_tick_value` + `breakeven_buffer_points` x `point`. Spread tidak dihitung (BUY: entry di ask, SL terpicu di bid; SELL sebaliknya).
+- Hanya posisi dengan magic number bot yang dikelola/diambil alih; posisi lain diabaikan (akun khusus bot) tetapi ikut di equity.
+- Sebelum entry, cek pasar simbol terbuka (`symbol_info.trade_mode` + sesi simbol); tutup -> `market_closed`.
 - Reconnect: 10 detik x 5 kali, lalu tiap 60 detik tanpa batas; lanjut otomatis.
 
 ## 5b. Aturan AI
 - Temperature tetap rendah (0-0.2) per penyedia; `prompt_version` (string, mis. `v1`) didefinisikan di `ai/prompts.py` dan disimpan di tiap `signals`.
 - Penyedia didaftarkan di registry; `ai_opinions.provider` + `model` bebas (tanpa CHECK), sehingga penyedia atau model tambahan tidak butuh migrasi.
+- Daftar model di `settings.ai_models` (JSON `[{provider, model, enabled}]`); konsensus memakai semua entri `enabled`.
+- Prompt menyertakan batas `sl_atr_min`/`sl_atr_max`, `min_rr`, dan aturan sisi SL/TP; skema menolak SL/TP di sisi salah.
+- Ringkasan jurnal (F-07) memakai model aktif pertama di `ai_models`.
 
 ## 6. Environment & Deploy
 | Env | Tujuan | Catatan |

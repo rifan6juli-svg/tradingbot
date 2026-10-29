@@ -36,24 +36,28 @@ Key baku dan default:
 | kill_switch | 0 | 0, 1 |
 | kill_switch_reason | (kosong) | teks |
 | symbol_map | `{"XAUUSD":"XAUUSD","EURUSD":"EURUSD"}` | JSON; kunci = simbol kanonik yang diperdagangkan (hanya XAUUSD, EURUSD), nilai = nama di broker dan harus ada di MT5 |
-| commission_per_lot | 0 | >= 0, mata uang akun, per sisi |
-| breakeven_buffer_points | 0 (tambahan di luar spread + komisi) | 0 - 200 |
+| commission_per_lot | 0 | >= 0, mata uang akun, per sisi per lot (rumus memakai 2x = pulang-pergi) |
+| breakeven_buffer_points | 0 (tambahan di luar komisi; spread tidak dihitung) | 0 - 200 |
 | kill_switch_mode | protect_winners | protect_winners, close_all |
-| min_ai_models | 2 | 2 - 4 (minimal 2, tidak bisa diturunkan) |
+| min_ai_models | 2 | 2 - jumlah model `enabled` di `ai_models` |
 | manual_blackouts | `[]` | JSON daftar `{start_utc, end_utc, note}` |
 | news_provider | faireconomy | nama provider terdaftar |
-| claude_model / openai_model | nilai awal dari `.env` saat seed | teks ID model; `settings` menang setelah seed |
+| ai_models | `[{"provider":"claude","model":ANTHROPIC_MODEL,"enabled":true},{"provider":"openai","model":OPENAI_MODEL,"enabled":true}]` (nilai model dari `.env` saat seed) | JSON daftar `{provider, model, enabled}`; provider terdaftar di registry; pasangan provider+model unik |
 | risk_per_trade_pct | 0.5 | 0.1 - 2.0 |
 | max_daily_loss_pct | 2.0 | 0.5 - 5.0 |
 | max_open_positions | 2 | 1 - 5 |
-| max_positions_per_symbol | 1 | 1 - 2 |
+| max_positions_per_symbol | 1 | 1 (dikunci; strategi hedging di luar scope) |
 | min_confidence | 0.6 | 0.5 - 0.95 |
 | sl_atr_min / sl_atr_max | 0.8 / 3.0 | 0.5 - 5.0 |
 | min_rr | 1.5 | 1.0 - 5.0 |
 | max_spread_points_XAUUSD / _EURUSD | 50 / 20 | > 0 |
 | session_start_utc / session_end_utc | 07:00 / 20:00 | HH:MM |
 | news_block_minutes | 30 | 10 - 120 |
-| ai_enabled_claude / ai_enabled_openai | 1 / 1 | 0, 1 |
+
+Aturan validasi lintas key (dilanggar -> ditolak 400):
+- `risk_per_trade_pct` x `max_open_positions` <= `max_daily_loss_pct`.
+- 2 <= `min_ai_models` <= jumlah model `enabled` di `ai_models`.
+- `symbol_map` tidak bisa diubah untuk simbol yang punya posisi terbuka (409).
 
 ### news_events
 Fitur: F-02
@@ -74,7 +78,7 @@ Fitur: F-02, F-03, F-04 | Tujuan: satu baris per simbol per candle M15 yang diev
 | Kolom | Tipe | Constraint | Keterangan |
 |---|---|---|---|
 | id | INTEGER | PK | |
-| symbol | TEXT | NOT NULL | |
+| symbol | TEXT | NOT NULL | Simbol kanonik (XAUUSD/EURUSD) |
 | timeframe | TEXT | NOT NULL, CHECK in ('M15','H1') | Entry selalu 'M15' di MVP |
 | bar_time | DATETIME | NOT NULL | Waktu buka candle yang ditutup (UTC) |
 | features_json | TEXT | NOT NULL | Paket fitur yang dikirim ke AI |
@@ -116,13 +120,14 @@ Fitur: F-05
 | id | INTEGER | PK | |
 | signal_id | INTEGER | FK -> signals.id, NULL | NULL untuk posisi yang diambil alih saat rekonsiliasi |
 | mt5_ticket | INTEGER | UNIQUE, NULL | NULL jika `rejected` |
-| symbol | TEXT | NOT NULL | |
+| symbol | TEXT | NOT NULL | Simbol kanonik (XAUUSD/EURUSD) |
+| broker_symbol | TEXT | NOT NULL | Nama simbol di broker saat order |
 | direction | TEXT | NOT NULL, CHECK in ('buy','sell') | |
 | volume | REAL | NOT NULL | lot |
 | entry_price | REAL | NULL | |
 | sl_price | REAL | NOT NULL | Diperbarui saat breakeven/trailing |
 | tp_price | REAL | NOT NULL | |
-| risk_amount | REAL | NOT NULL | Uang yang dirisikokan saat entry |
+| risk_amount | REAL | NOT NULL | Uang yang dirisikokan saat entry (posisi yang diambil alih: dihitung dari SL saat diambil alih) |
 | status | TEXT | NOT NULL, CHECK in ('open','closed','rejected') | |
 | account_mode | TEXT | NOT NULL, CHECK in ('demo','live') | |
 | opened_at | DATETIME | NULL | |
@@ -148,7 +153,7 @@ Fitur: F-02, F-04, F-05
 |---|---|---|---|
 | id | INTEGER | PK | |
 | type | TEXT | NOT NULL, CHECK (lihat enum `risk_event_type`) | |
-| symbol | TEXT | NULL | |
+| symbol | TEXT | NULL | Simbol kanonik |
 | detail | TEXT | NOT NULL | Penjelasan singkat |
 | created_at | DATETIME | NOT NULL | |
 
@@ -159,7 +164,7 @@ Fitur: F-04, F-07
 | Kolom | Tipe | Constraint | Keterangan |
 |---|---|---|---|
 | date | DATE | PK | Hari UTC |
-| start_balance | REAL | NOT NULL | Dasar batas rugi harian |
+| start_balance | REAL | NOT NULL | Balance pada 00:00 UTC; rugi harian = (start_balance - equity) / start_balance |
 | end_balance | REAL | NULL | |
 | trades_count | INTEGER | NOT NULL, default 0 | |
 | wins | INTEGER | NOT NULL, default 0 | |
@@ -188,7 +193,7 @@ Indeks: UNIQUE(`period`, `period_start`).
 | ai direction | buy, sell, hold | Saran AI |
 | signals.decision | execute, skip, blocked | Dieksekusi / tidak ada konsensus / diblokir aturan |
 | trades.status | open -> closed; rejected (final) | Transisi: open->closed saja |
-| risk_event_type | daily_loss_limit, kill_switch_on, kill_switch_off, max_positions, spread_too_wide, news_block, outside_session, invalid_sltp, lot_too_small, insufficient_ai_models, sltp_unplaceable, broker_error, ai_error, live_guard | Jenis peristiwa risiko |
+| risk_event_type | daily_loss_limit, kill_switch_on, kill_switch_off, max_positions, spread_too_wide, news_block, outside_session, invalid_sltp, lot_too_small, insufficient_ai_models, sltp_unplaceable, market_closed, broker_error, ai_error, live_guard | Jenis peristiwa risiko |
 
 ## 5. Aturan Akses (otorisasi data)
 Satu peran (owner), hanya dari `127.0.0.1`.
@@ -213,7 +218,7 @@ Semua request dengan header `Host` asing -> 400. Endpoint `GET` tanpa token; `PU
 | GET | /api/trades | `?status&limit` | 200 `{ items: [trade] }` | 400 |
 | GET | /api/risk-events | `?limit` | 200 `{ items: [risk_event] }` | 400 |
 | GET | /api/settings | - | 200 `{ key: value, ... }` | 500 |
-| PUT | /api/settings | `{ key: value, ... }` (subset) | 200 `{ updated: [keys] }` | 400 (di luar batas), 401, 403 (coba ubah `mode`, `kill_switch`, `kill_switch_reason`) |
+| PUT | /api/settings | `{ key: value, ... }` (subset) | 200 `{ updated: [keys] }` | 400 (di luar batas / aturan lintas key), 401, 403 (coba ubah `mode`, `kill_switch`, `kill_switch_reason`), 409 (`symbol_map` saat ada posisi terbuka) |
 | POST | /api/kill-switch | `{ on: bool, panic?: bool }` | 200 `{ kill_switch, closed_positions, protected_positions }` | 401 |
 | GET | /api/symbols/candidates | `?canonical=XAUUSD` | 200 `{ items: [broker_symbol] }` | 503 (MT5 terputus) |
 | GET | /api/journal | `?period=daily\|weekly` | 200 `{ items: [journal_entry], live_readiness }` | 400 |

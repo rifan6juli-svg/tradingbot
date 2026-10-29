@@ -35,5 +35,6 @@ Baca sebelum bekerja. Jangan menebak jika dokumen tidak menjelaskan; tanyakan.
 - Jangan hapus atau timpa data/migrasi yang sudah ada tanpa konfirmasi.
 - Mode default dan fallback selalu `demo`. Jangan pernah mengubah/mengaktifkan mode `live` dari kode atau tes; penjaga live (TRD bagian 5) tidak boleh dilemahkan.
 - Jangan kirim order tanpa SL dan TP. Lot dihitung kode, bukan AI.
+- Bot hanya mengelola posisi dengan magic number bot; posisi lain di akun tidak boleh disentuh.
 - `MetaTrader5` hanya boleh dipanggil dari `src/tradingbot/broker/mt5.py`; tes memakai `MockBroker` dan AI palsu (tanpa API key, tanpa uang).
 - Semua waktu disimpan UTC. Tidak ada SQL mentah tanpa parameter. Tidak ada API key di log.

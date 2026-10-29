@@ -44,7 +44,7 @@ Arah buy/sell tidak boleh dibedakan hanya lewat warna: selalu sertakan teks "BUY
 | Tabel data | rapat, baris dapat diperluas | default, kosong, loading, error |
 | Badge | mode (DEMO/LIVE), arah (BUY/SELL/HOLD), status (open/closed/rejected/blocked/skip) | -- |
 | Banner | info, warning, danger | tampil/tutup (danger terkait kill switch tidak bisa ditutup) |
-| Dialog konfirmasi | untuk kill switch, reset, ubah mode | default, loading |
+| Dialog konfirmasi | untuk kill switch, reset, tutup semua (panic) | default, loading |
 | Toast | sukses, error | muncul 4 detik |
 | Navigasi | bilah atas (5 menu) + tombol kill switch | aktif, hover, focus |
 
@@ -54,7 +54,7 @@ Arah buy/sell tidak boleh dibedakan hanya lewat warna: selalu sertakan teks "BUY
 | S-01 Dashboard | Card statistik (saldo, equity, P/L hari ini), Badge mode, Tabel posisi terbuka, Tabel sinyal terakhir, Banner, tombol Kill switch + Dialog |
 | S-02 Sinyal & Opini AI | Tabel data (baris dapat diperluas), Badge arah/status, Input select filter simbol |
 | S-03 Posisi & Riwayat | Tabel data dengan tab Terbuka/Riwayat, Badge status, tautan ke S-02 |
-| S-04 Risiko & Pengaturan | Input number/toggle/select, Button simpan, Dialog konfirmasi (kill switch, reset), Toast |
+| S-04 Risiko & Pengaturan | Input number/toggle/select, select kandidat simbol broker (`symbol_map`), daftar model AI (`ai_models`: tambah/aktif/nonaktif), Button simpan, Button danger "Tutup semua sekarang", Dialog konfirmasi (kill switch, reset, panic), Toast |
 | S-05 Jurnal & Performa | Card statistik, Tabel harian/mingguan, blok ringkasan AI, indikator progres kelayakan live |
 
 ## 4. Responsivitas

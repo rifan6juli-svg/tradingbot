@@ -4,18 +4,18 @@
 
 ## Cara memakai
 Kerjakan **satu langkah per sesi**, berurutan. Centang `[x]` hanya jika kriteria "Selesai jika" terbukti lolos. Jangan mengerjakan fitur di luar langkah yang aktif.
-Langkah bertanda **[Windows]** harus diuji manual di PC Windows dengan MT5 akun demo; di lingkungan lain, cukup lewat `MockBroker`.
+Langkah bertanda **[Windows]** harus diuji manual di PC Windows dengan MT5 akun demo khusus bot; di lingkungan lain, cukup lewat `MockBroker`.
 **Semua pengujian dengan uang nyata dilarang** sampai kriteria PRD bagian 3 terpenuhi dan owner menyetujui eksplisit.
 
 ## Ringkasan Fase
 | Fase | Tujuan | Langkah | Estimasi |
 |---|---|---|---|
-| 1 | Fondasi | 1-5 | ~12 jam (1-1.5 minggu) |
-| 2 | Alur inti (analisa, AI, risiko, eksekusi) | 6-15 | ~25 jam (2.5 minggu) |
+| 1 | Fondasi | 1-5b | ~16 jam (1.5 minggu) |
+| 2 | Alur inti (analisa, AI, risiko, eksekusi) | 6-15 | ~31 jam (3 minggu) |
 | 3 | Dashboard & jurnal | 16-21 | ~14 jam (1.5 minggu) |
 | 4 | Polesan, hardening, uji demo | 22-26 | ~10 jam + 4 minggu uji demo berjalan |
 
-Total pengerjaan ~61 jam (~6 minggu pada ~10 jam/minggu), lalu >= 4 minggu uji demo.
+Total pengerjaan ~71 jam (~7 minggu pada ~10 jam/minggu), lalu >= 4 minggu uji demo.
 
 ## Fase 1 - Fondasi
 
@@ -26,23 +26,28 @@ Total pengerjaan ~61 jam (~6 minggu pada ~10 jam/minggu), lalu >= 4 minggu uji d
 
 - [ ] **2. Database & skema**
   - Rujukan: BSD bagian 2-4, 7
-  - Kerjakan: model SQLAlchemy + migrasi Alembic untuk semua tabel BSD, seed `settings` default, helper sesi
+  - Kerjakan: model SQLAlchemy + migrasi Alembic untuk semua tabel BSD, seed `settings` default (termasuk `ai_models` dari `.env`), helper sesi
   - Selesai jika: migrasi berjalan dari nol; seed terisi; tes skema (constraint CHECK/UNIQUE) lolos
 
 - [ ] **3. Config & penjaga mode**
-  - Rujukan: TRD bagian 5, F-05 (kriteria mode live), BSD `settings`
-  - Kerjakan: loader `.env` + `settings` dengan validasi batas (Pydantic), fungsi `check_live_guard(account_type)`, default paksa `demo`
-  - Selesai jika: tes membuktikan: mode `live` ditolak tanpa `LIVE_ENABLED=true`; ditolak jika tipe akun tidak cocok; nilai di luar batas ditolak
+  - Rujukan: TRD bagian 5, F-05 (kriteria mode live), BSD `settings` (termasuk aturan validasi lintas key)
+  - Kerjakan: loader `.env` + `settings` dengan validasi batas per key dan lintas key (Pydantic), fungsi `check_live_guard(account_type)`, default paksa `demo`
+  - Selesai jika: tes membuktikan: mode `live` ditolak tanpa `LIVE_ENABLED=true`; ditolak jika tipe akun tidak cocok; nilai di luar batas ditolak; `risk_per_trade_pct` x `max_open_positions` > `max_daily_loss_pct` ditolak; `min_ai_models` < 2 atau > jumlah model aktif ditolak
 
 - [ ] **4. Broker interface & MockBroker**
-  - Rujukan: F-01, TRD bagian 2-3
-  - Kerjakan: `Broker` (info akun, candle, tick/spread, info simbol, kirim order, posisi terbuka, modifikasi SL/TP, tutup posisi, riwayat deal) + `MockBroker` dengan data candle sintetis dan fill sederhana
-  - Selesai jika: tes unit MockBroker lolos (order dengan SL/TP, tutup, riwayat)
+  - Rujukan: F-01, TRD bagian 2-3, 5a
+  - Kerjakan: `Broker` (info akun, candle, tick/spread, info simbol termasuk `tick_size`/`tick_value_loss`/`stops_level`/`freeze_level`/status pasar, kirim order, posisi terbuka, modifikasi SL/TP, tutup posisi, riwayat deal) + `MockBroker` dengan data candle sintetis dan fill sederhana
+  - Selesai jika: tes unit MockBroker lolos (order dengan SL/TP, tutup, riwayat, posisi tanpa magic)
 
-- [ ] **5. MT5Broker [Windows]**
-  - Rujukan: F-01, TRD bagian 9
-  - Kerjakan: implementasi `Broker` di `broker/mt5.py`, normalisasi waktu ke UTC, pemetaan simbol via `symbol_map` + pencarian kandidat (`symbols_get`), reconnect (10 detik x 5, lalu tiap 60 detik tanpa batas, lanjut otomatis), cek saat start: Algo Trading aktif, akun hedging, `filling_mode`; validasi `stops_level`/`freeze_level`; skrip `scripts/check_mt5.py` yang mencetak akun/tipe/margin mode/filling/candle (TRD 5a)
-  - Selesai jika: di Windows, skrip mencetak saldo, tipe akun DEMO, dan 300 candle M15/H1 XAUUSD dan EURUSD; mematikan MT5 memicu status terputus dan reconnect, menyalakan kembali setelah > 1 menit membuat bot lanjut sendiri; Algo Trading dimatikan -> start ditolak dengan pesan; kontrak tes `Broker` yang sama lolos untuk Mock dan MT5
+- [ ] **5a. MT5Broker: koneksi & data [Windows]**
+  - Rujukan: F-01, TRD bagian 5a, 9
+  - Kerjakan: implementasi `Broker` di `broker/mt5.py`, normalisasi waktu ke UTC, pemetaan simbol via `symbol_map` + pencarian kandidat (`symbols_get`), skrip `scripts/check_mt5.py` yang mencetak akun/tipe/margin mode/filling/candle
+  - Selesai jika: di Windows, skrip mencetak saldo, tipe akun DEMO, dan 300 candle M15/H1 untuk kedua simbol kanonik lewat nama broker; kontrak tes `Broker` yang sama lolos untuk Mock dan MT5
+
+- [ ] **5b. MT5Broker: cek start, reconnect, batas broker [Windows]**
+  - Rujukan: F-01, TRD bagian 5a
+  - Kerjakan: cek saat start (Algo Trading aktif, akun hedging, `filling_mode`), status pasar simbol, abaikan posisi tanpa magic bot, reconnect (10 detik x 5, lalu tiap 60 detik tanpa batas, lanjut otomatis), helper validasi `stops_level`/`freeze_level`
+  - Selesai jika: Algo Trading dimatikan -> start ditolak dengan pesan; mematikan MT5 memicu status terputus, menyalakan kembali setelah > 1 menit membuat bot lanjut sendiri; posisi manual di terminal tidak diambil alih; tes helper `stops_level` lolos
 
 ## Fase 2 - Alur Inti
 
@@ -52,44 +57,54 @@ Total pengerjaan ~61 jam (~6 minggu pada ~10 jam/minggu), lalu >= 4 minggu uji d
   - Selesai jika: tes dengan data tetap cocok nilai acuan (toleransi 1e-6); data < 300 candle ditolak dengan pesan jelas
 
 - [ ] **7. Filter berita**
-  - Rujukan: F-02, BSD `news_events`, `settings.news_block_minutes`
-  - Kerjakan: `analysis/news.py` dengan `NewsProvider` yang dapat diganti (default feed Forex Factory mingguan), httpx + timeout, simpan upsert, dukung `manual_blackouts`, `is_news_blocked(symbol, now)`, pemetaan simbol -> mata uang (XAUUSD: USD; EURUSD: EUR, USD)
-  - Selesai jika: tes: dalam +-30 menit event high -> blokir; di luar -> lolos; data > 24 jam / fetch gagal -> blokir (`news_block`)
+  - Rujukan: F-02, BSD `news_events`, `settings.news_block_minutes`, `settings.manual_blackouts`
+  - Kerjakan: `analysis/news.py` dengan `NewsProvider` yang dapat diganti (default feed Forex Factory mingguan), httpx + timeout, simpan upsert, dukung `manual_blackouts`, `is_news_blocked(symbol, now)`, cek cakupan kalender, pemetaan simbol -> mata uang (XAUUSD: USD; EURUSD: EUR, USD). Verifikasi feed nyata dari PC Windows.
+  - Selesai jika: tes: dalam `± news_block_minutes` event high -> blokir; di luar -> lolos; manual blackout -> blokir; data > 24 jam / fetch gagal / kalender tidak mencakup waktu sekarang -> blokir (`news_block`)
 
 - [ ] **8. Antarmuka AI + adapter Claude**
-  - Rujukan: F-03, TRD bagian 1, 4
-  - Kerjakan: `ai/schema.py` (Pydantic: direction, confidence, sl_price, tp_price, rationale), `ai/prompts.py`, `AIProvider` base + registry (penyedia baru tanpa ubah konsensus), `claude.py` dengan output terstruktur, timeout 30 detik, temperature rendah tetap, `prompt_version`, ID model dari `settings` (TRD 5b)
-  - Selesai jika: tes dengan klien palsu: balasan valid di-parse; JSON rusak / timeout menghasilkan `AIError` terkontrol; 1 panggilan nyata manual ke Claude mengembalikan opini valid
+  - Rujukan: F-03, TRD bagian 1, 4, 5b
+  - Kerjakan: `ai/schema.py` (Pydantic: direction, confidence, sl_price, tp_price, rationale; SL/TP wajib untuk buy/sell, boleh kosong untuk hold; SL/TP sisi salah -> tidak valid), `ai/prompts.py` (dengan `prompt_version`, batas ATR/RR, aturan sisi), `AIProvider` base + registry, `claude.py` dengan output terstruktur, timeout 30 detik, temperature rendah tetap, model dari `ai_models`
+  - Selesai jika: tes dengan klien palsu: balasan valid di-parse; JSON rusak / timeout / SL di sisi salah menghasilkan `AIError` terkontrol; 1 panggilan nyata manual ke Claude mengembalikan opini valid
 
 - [ ] **9. Adapter OpenAI**
-  - Rujukan: F-03
-  - Kerjakan: `ai/openai_provider.py` dengan skema, prompt, dan timeout yang sama; ID model dari `OPENAI_MODEL`; kedua penyedia dapat diaktifkan/dinonaktifkan terpisah
+  - Rujukan: F-03, TRD bagian 5b
+  - Kerjakan: `ai/openai_provider.py` dengan skema, prompt, dan timeout yang sama; model dari `ai_models` (bukan langsung dari `.env`)
   - Selesai jika: tes klien palsu setara langkah 8 lolos; 1 panggilan nyata manual valid
 
 - [ ] **10. Konsensus & penyimpanan sinyal**
   - Rujukan: F-03, BSD `signals`, `ai_opinions`
-  - Kerjakan: panggilan paralel (`asyncio.gather`), `consensus.py` (semua model aktif sama arah, bukan hold, conf >= `min_confidence`, jumlah model aktif >= `min_ai_models`, kurang -> `blocked` `insufficient_ai_models` tanpa memanggil AI), simpan `signals` (dengan `prompt_version`) + `ai_opinions`, idempotensi per (`symbol`,`timeframe`,`bar_time`)
-  - Selesai jika: tes tabel kebenaran (setuju / beda arah / satu hold / satu error / satu nonaktif) lolos; sinyal yang sama tidak tersimpan dua kali
+  - Kerjakan: panggilan paralel (`asyncio.gather`) ke semua model `enabled` di `ai_models`, `consensus.py` (semua model aktif sama arah, bukan hold, conf >= `min_confidence`, jumlah model aktif >= `min_ai_models`, kurang -> `blocked` `insufficient_ai_models` tanpa memanggil AI), simpan `signals` (simbol kanonik, `prompt_version`) + `ai_opinions`, idempotensi per (`symbol`,`timeframe`,`bar_time`)
+  - Selesai jika: tes tabel kebenaran (setuju / beda arah / satu hold / satu error / SL sisi salah / satu nonaktif / dua model satu penyedia) lolos; sinyal yang sama tidak tersimpan dua kali
 
-- [ ] **11. Risk manager: SL/TP & lot**
+- [ ] **11a. Validasi SL/TP & guard entry**
   - Rujukan: F-04, BSD `settings`
-  - Kerjakan: gabung SL terjauh + TP terdekat, validasi jarak SL (ATR) dan RR dari `settings`, hitung lot dengan rumus PRD F-04 (`tick_size`, `tick_value`, `commission_per_lot`, bulat ke bawah), fungsi validasi ulang dengan bid/ask terbaru, guard spread dan sesi
-  - Selesai jika: tes: SL di luar `sl_atr_min`-`sl_atr_max` ditolak; RR < `min_rr` ditolak; lot benar untuk XAUUSD dan EURUSD (contoh tetap, termasuk kontrak 100 oz) dan risiko aktual tidak pernah > target; lot < min diblokir (`lot_too_small`); harga terbaru melewati SL -> diblokir (`invalid_sltp`)
+  - Kerjakan: gabung SL terjauh + TP terdekat, validasi jarak SL (`sl_atr_min`-`sl_atr_max`) dan RR (`min_rr`), guard spread, sesi, pasar tutup, maks posisi
+  - Selesai jika: tes: SL di luar batas ATR ditolak; RR < `min_rr` ditolak; spread > batas -> `spread_too_wide`; di luar sesi -> `outside_session`; pasar tutup -> `market_closed`; posisi penuh -> `max_positions`
 
-- [ ] **12. Batas harian & kill switch**
-  - Rujukan: F-04, BSD `daily_stats`, `risk_events`
-  - Kerjakan: `daily_stats` awal hari UTC, hitung rugi harian (realized + floating), pemicu otomatis, fungsi `trigger_kill_switch(reason, mode)` (`protect_winners`: tutup yang rugi, SL ke minimal breakeven + buffer untuk yang untung, tutup jika SL tidak bisa dipasang valid (`sltp_unplaceable`); `close_all`: tutup semua; set `settings.kill_switch`), tombol panic tutup semua, reset manual dan otomatis hari berikutnya
-  - Selesai jika: tes MockBroker: rugi mencapai 2% -> mode `protect_winners`: posisi rugi tertutup, posisi untung tetap hidup dengan SL >= breakeven + buffer, posisi untung tipis yang SL-nya tidak valid ikut ditutup; mode `close_all`: semua tertutup; entry berikutnya diblokir, `risk_events` tercatat; reset berfungsi
+- [ ] **11b. Perhitungan lot & validasi ulang sebelum order**
+  - Rujukan: F-04, TRD bagian 5a
+  - Kerjakan: lot dengan rumus PRD F-04 (`tick_size`, `tick_value_loss`, 2 x `commission_per_lot`, bulat ke bawah ke `volume_step`, batas `volume_max`), fungsi validasi ulang (spread, SL/TP, lot) dengan bid/ask terbaru
+  - Selesai jika: tes: lot benar untuk XAUUSD dan EURUSD (contoh tetap, termasuk kontrak 100 oz) dan risiko aktual tidak pernah > target; lot < `volume_min` -> `lot_too_small`; harga terbaru melewati SL -> `invalid_sltp`; spread melebar saat validasi ulang -> `spread_too_wide`
+
+- [ ] **12a. Batas rugi harian & kill switch dasar**
+  - Rujukan: F-04, BSD `daily_stats`, `risk_events`, `settings.kill_switch*`
+  - Kerjakan: `daily_stats` pada 00:00 UTC (`start_balance`), rugi harian = (`start_balance` - equity) / `start_balance`, pemicu otomatis, `trigger_kill_switch(reason, mode)` untuk mode `close_all`, fungsi panic (selalu tutup semua), reset manual dan reset otomatis hari berikutnya (hanya untuk pemicu batas harian)
+  - Selesai jika: tes MockBroker: rugi mencapai `max_daily_loss_pct` -> kill switch ON, semua posisi bot tertutup (`close_all`), entry berikutnya diblokir, `risk_events` tercatat; reset manual dan otomatis berfungsi; kill switch manual tidak ter-reset otomatis
+
+- [ ] **12b. Mode `protect_winners`**
+  - Rujukan: F-04, F-05 (buffer breakeven), TRD bagian 5a
+  - Kerjakan: di `trigger_kill_switch`: tutup posisi rugi; posisi untung -> SL ke minimal breakeven + buffer; jika SL itu tidak bisa dipasang valid (`stops_level`/`freeze_level`/sisi harga) -> tutup (`sltp_unplaceable`)
+  - Selesai jika: tes MockBroker: posisi rugi tertutup; posisi untung tetap hidup dengan SL >= breakeven + buffer; posisi untung tipis yang SL-nya tidak valid ikut ditutup; posisi tanpa magic bot tidak disentuh
 
 - [ ] **13. Eksekusi order & rekonsiliasi**
   - Rujukan: F-05, BSD `trades`
-  - Kerjakan: `executor.py` (validasi ulang harga terbaru, order market + SL/TP + magic + `type_filling` dari broker, 1 retry, status `rejected`), `reconcile.py` (sinkron `trades` dengan posisi/deal broker; ambil alih posisi ber-magic saat start; `close_reason` sesuai aturan BSD `trades`)
-  - Selesai jika: tes MockBroker: order tersimpan `open`; ditolak -> `rejected` tanpa retry kedua; restart mengambil alih posisi; posisi tertutup di broker -> `closed` dengan profit dan `close_reason`
+  - Kerjakan: `executor.py` (validasi ulang langkah 11b, order market + SL/TP + magic + `type_filling` dari broker, validasi ulang lalu 1 retry, status `rejected`), `reconcile.py` (sinkron `trades` dengan posisi/deal broker berdasarkan magic; ambil alih posisi ber-magic saat start dengan `risk_amount` dari SL; isi `broker_symbol`; `close_reason` sesuai aturan BSD `trades`)
+  - Selesai jika: tes MockBroker: order tersimpan `open`; ditolak -> validasi ulang lalu `rejected` tanpa retry kedua; restart mengambil alih posisi ber-magic saja; posisi tertutup di broker -> `closed` dengan profit dan `close_reason` benar untuk tp/sl/breakeven/trailing/manual
 
 - [ ] **14. Breakeven & trailing**
-  - Rujukan: F-05
-  - Kerjakan: `position_manager.py` (+1R -> SL ke breakeven + buffer spread/komisi/`breakeven_buffer_points`; +1.5R -> trailing 1 x ATR; SL hanya bergerak searah menguntungkan, cek `stops_level`/`freeze_level` sebelum modifikasi)
-  - Selesai jika: tes simulasi harga menunjukkan SL bergeser tepat pada ambang, berada di atas entry (BUY) / di bawah entry (SELL) sebesar buffer, dan tidak pernah mundur
+  - Rujukan: F-05, TRD bagian 5a
+  - Kerjakan: `position_manager.py` (+1R -> SL ke breakeven + buffer, dengan buffer = komisi pulang-pergi dikonversi ke jarak harga + `breakeven_buffer_points`, tanpa spread; +1.5R -> trailing 1 x ATR; SL hanya bergerak searah menguntungkan; cek `stops_level`/`freeze_level` sebelum modifikasi)
+  - Selesai jika: tes simulasi harga menunjukkan SL bergeser tepat pada ambang, berada di atas entry (BUY) / di bawah entry (SELL) sebesar buffer, tidak pernah mundur, dan keluar di level breakeven menghasilkan profit bersih >= 0 setelah komisi
 
 - [ ] **15. Orkestrator end-to-end (demo) [Windows]**
   - Rujukan: seluruh F-01 s.d. F-05, AFD bagian 3
@@ -105,25 +120,25 @@ Total pengerjaan ~61 jam (~6 minggu pada ~10 jam/minggu), lalu >= 4 minggu uji d
 
 - [ ] **17. S-02 Sinyal & Opini AI**
   - Rujukan: F-03, F-06, AFD S-02, BSD `/api/signals`
-  - Selesai jika: tabel sinyal dengan baris yang bisa diperluas memperlihatkan opini + alasan tiap AI dan `block_reason`; filter simbol berfungsi
+  - Selesai jika: tabel sinyal dengan baris yang bisa diperluas memperlihatkan opini + alasan tiap model dan `block_reason`; filter simbol berfungsi
 
 - [ ] **18. S-03 Posisi & Riwayat**
   - Rujukan: F-05, F-06, AFD S-03, BSD `/api/trades`
   - Selesai jika: tab Terbuka/Riwayat benar; tautan ke sinyal asal berfungsi; profit berwarna + teks tanda
 
 - [ ] **19. S-04 Risiko & Pengaturan + kill switch**
-  - Rujukan: F-04, F-06, AFD S-04, BSD `settings`, `/api/settings`, `/api/kill-switch`, TRD bagian 5
-  - Kerjakan tambahan: pilih `symbol_map` dari kandidat MT5, pilih `kill_switch_mode`, atur model AI aktif dan ID model
-  - Tambahan: input `breakeven_buffer_points`
-  - Selesai jika: ubah risiko tersimpan dan berlaku siklus berikutnya; nilai di luar batas ditolak dengan pesan; tanpa token -> 401; coba ubah `mode`/`kill_switch` lewat PUT -> 403; kill switch dan reset dengan dialog konfirmasi bekerja
+  - Rujukan: F-04, F-06, AFD S-04, DBD S-04, BSD `settings`, `/api/settings`, `/api/kill-switch`, `/api/symbols/candidates`, TRD bagian 5
+  - Kerjakan: form pengaturan risiko, pilih `symbol_map` dari kandidat MT5, pilih `kill_switch_mode`, editor `ai_models` (tambah/aktif/nonaktif), input `breakeven_buffer_points` dan `commission_per_lot`, tombol kill switch, reset, dan "Tutup semua sekarang" dengan dialog konfirmasi
+  - Selesai jika: ubah risiko tersimpan dan berlaku siklus berikutnya; nilai di luar batas atau melanggar aturan lintas key ditolak dengan pesan; ubah `symbol_map` saat ada posisi terbuka -> 409; tanpa token -> 401; coba ubah `mode`/`kill_switch` lewat PUT -> 403; kill switch, reset, dan panic bekerja dengan dialog konfirmasi
 
 - [ ] **20. Statistik jurnal & kelayakan live**
-  - Rujukan: F-07, BSD `daily_stats`, `journal_entries`
-  - Kerjakan: `journal/stats.py` (jumlah trade, win rate, profit factor, net profit, max drawdown), simpan harian/mingguan, fungsi `live_readiness()` terhadap kriteria PRD bagian 3
-  - Selesai jika: tes dengan set trade tetap menghasilkan angka acuan; `live_readiness` benar untuk kasus lolos dan gagal
+  - Rujukan: F-07, PRD bagian 3 (definisi), BSD `daily_stats`, `journal_entries`
+  - Kerjakan: `journal/stats.py` (jumlah trade, win rate, profit factor, net profit, max drawdown sesuai definisi PRD), simpan harian/mingguan, fungsi `live_readiness()` terhadap kriteria PRD bagian 3 (hanya trade `account_mode = demo`)
+  - Selesai jika: tes dengan set trade tetap menghasilkan angka acuan; `live_readiness` benar untuk kasus lolos dan gagal; rugi akibat gap tidak dihitung sebagai pelanggaran
 
 - [ ] **21. Ringkasan AI & S-05 Jurnal**
-  - Rujukan: F-07, AFD S-05, BSD `/api/journal`
+  - Rujukan: F-07, AFD S-05, BSD `/api/journal`, TRD bagian 5b
+  - Kerjakan: ringkasan memakai model aktif pertama di `ai_models`
   - Selesai jika: ringkasan tersimpan dan tampil; AI gagal -> statistik tetap tampil dengan tombol coba lagi; S-05 menampilkan progres kriteria live
 
 ## Fase 4 - Polesan, Hardening & Uji Demo
@@ -143,7 +158,7 @@ Total pengerjaan ~61 jam (~6 minggu pada ~10 jam/minggu), lalu >= 4 minggu uji d
 
 - [ ] **25. Paket Windows & dokumentasi pakai**
   - Rujukan: TRD bagian 6
-  - Kerjakan: `start.bat`, panduan singkat di `README.md` (pasang Python, MT5, isi `.env`, jalankan), daftar periksa sebelum menjalankan
+  - Kerjakan: `start.bat`, panduan singkat di `README.md` (pasang Python, MT5, akun demo khusus bot, isi `.env`, jalankan), daftar periksa sebelum menjalankan
   - Selesai jika: orang lain dapat memasang dan menjalankan dari nol di Windows bersih mengikuti README
 
 - [ ] **26. Uji demo >= 4 minggu & evaluasi**
@@ -161,14 +176,16 @@ Total pengerjaan ~61 jam (~6 minggu pada ~10 jam/minggu), lalu >= 4 minggu uji d
 | Risiko | Dampak | Mitigasi |
 |---|---|---|
 | Kerugian saat live | Kehilangan modal | Demo dulu, penjaga live berlapis, kill switch, risiko 0.5% |
-| Dua AI sepakat tetapi salah | Trade rugi | Validasi risiko deterministik, SL wajib, batas harian |
+| Semua AI sepakat tetapi salah | Trade rugi | Validasi risiko deterministik, SL wajib, batas harian |
 | Perilaku MT5/broker berbeda dari mock | Bug muncul saat Windows | Kontrak tes `Broker` yang sama, langkah [Windows] diuji manual |
-| Feed kalender mati | Entry diblokir terus | Fail-safe disengaja; adapter mudah diganti |
-| Biaya API membengkak | Biaya tak terduga | Panggil saat candle tutup, log jumlah panggilan |
+| Gap akhir pekan/rollover melewati SL | Rugi > target per trade | Diterima owner; risiko kecil per trade, maks 2 posisi |
+| Feed kalender mati | Entry diblokir terus | Fail-safe disengaja; provider dapat diganti; blackout manual |
+| Biaya API membengkak | Biaya tak terduga | Panggil saat candle tutup setelah guard, idempotensi per candle, log jumlah panggilan |
 | Sesi kerja terputus di tengah langkah | Status campur | Satu langkah satu commit; centang hanya setelah lolos |
 
 ## Catatan & Utang Teknis
 <!-- Tambahkan: tanggal - langkah - catatan/keputusan -->
+- 2026-10-29 - init - Revisi 3 (audit kedua): buffer breakeven tanpa spread + konversi komisi, komisi pulang-pergi di rumus lot, `tick_value_loss`, aturan lintas key risiko, 1 posisi per simbol dikunci, `ai_models` menggantikan key model/aktif per penyedia, akun khusus bot (posisi tanpa magic diabaikan), validasi sisi SL/TP AI, simbol kanonik + `broker_symbol`, definisi rugi harian/max drawdown/pelanggaran, cek cakupan kalender, `market_closed`, validasi ulang spread dan sebelum retry. Langkah 5, 11, 12 dipecah (a/b); estimasi ~71 jam.
 - 2026-10-29 - init - Revisi 2 (audit): rumus lot lengkap + bulat ke bawah, validasi ulang harga sebelum order, SL tidak valid -> tutup, reconnect tanpa batas, cek Algo Trading/hedging/filling, `stops_level`, hapus `symbols`, `settings` menang atas `.env`, provider AI tanpa CHECK, `min_ai_models` minimal 2, anti DNS rebinding + token di halaman, `prompt_version`, aturan `close_reason`. Keputusan owner: posisi melewati akhir pekan hanya dengan SL; korelasi USD hanya dicatat.
 - 2026-10-29 - utang - Belum ada cara resmi mengubah `mode` ke `live` (API menolak). Saat live disetujui, buat perintah CLI terpisah yang menjalankan penjaga TRD 5. Di luar scope MVP.
 - 2026-10-29 - init - Revisi 1: simbol fleksibel (`symbol_map`), `kill_switch_mode`, sumber kalender dijelaskan + provider/manual blackout, `min_ai_models`, ID model dapat diatur.
