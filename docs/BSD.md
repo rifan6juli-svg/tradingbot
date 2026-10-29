@@ -37,6 +37,7 @@ Key baku dan default:
 | kill_switch_reason | (kosong) | teks |
 | symbols | XAUUSD,EURUSD | daftar dipisah koma |
 | symbol_map | `{"XAUUSD":"XAUUSD","EURUSD":"EURUSD"}` | JSON; nilai harus ada di MT5 |
+| breakeven_buffer_points | 0 (tambahan di luar spread + komisi) | 0 - 200 |
 | kill_switch_mode | protect_winners | protect_winners, close_all |
 | min_ai_models | 2 | 1 - 3 (nilai 1 hanya diizinkan saat mode demo) |
 | manual_blackouts | `[]` | JSON daftar `{start_utc, end_utc, note}` |

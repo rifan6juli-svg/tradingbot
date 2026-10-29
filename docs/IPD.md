@@ -88,8 +88,8 @@ Total pengerjaan ~61 jam (~6 minggu pada ~10 jam/minggu), lalu >= 4 minggu uji d
 
 - [ ] **14. Breakeven & trailing**
   - Rujukan: F-05
-  - Kerjakan: `position_manager.py` (+1R -> SL ke breakeven; +1.5R -> trailing 1 x ATR; SL hanya bergerak searah menguntungkan)
-  - Selesai jika: tes simulasi harga menunjukkan SL bergeser tepat pada ambang dan tidak pernah mundur
+  - Kerjakan: `position_manager.py` (+1R -> SL ke breakeven + buffer spread/komisi/`breakeven_buffer_points`; +1.5R -> trailing 1 x ATR; SL hanya bergerak searah menguntungkan)
+  - Selesai jika: tes simulasi harga menunjukkan SL bergeser tepat pada ambang, berada di atas entry (BUY) / di bawah entry (SELL) sebesar buffer, dan tidak pernah mundur
 
 - [ ] **15. Orkestrator end-to-end (demo) [Windows]**
   - Rujukan: seluruh F-01 s.d. F-05, AFD bagian 3
@@ -114,6 +114,7 @@ Total pengerjaan ~61 jam (~6 minggu pada ~10 jam/minggu), lalu >= 4 minggu uji d
 - [ ] **19. S-04 Risiko & Pengaturan + kill switch**
   - Rujukan: F-04, F-06, AFD S-04, BSD `settings`, `/api/settings`, `/api/kill-switch`, TRD bagian 5
   - Kerjakan tambahan: pilih `symbol_map` dari kandidat MT5, pilih `kill_switch_mode`, atur model AI aktif dan ID model
+  - Tambahan: input `breakeven_buffer_points`
   - Selesai jika: ubah risiko tersimpan dan berlaku siklus berikutnya; nilai di luar batas ditolak dengan pesan; tanpa token -> 401; coba set `mode=live` -> 403; kill switch dan reset dengan dialog konfirmasi bekerja
 
 - [ ] **20. Statistik jurnal & kelayakan live**

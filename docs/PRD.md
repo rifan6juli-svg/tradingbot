@@ -74,7 +74,7 @@ Prioritas: P0 = wajib rilis, P1 = sebaiknya ada, P2 = jika sempat.
 
 **F-05 Eksekusi order & manajemen posisi**
 - [ ] Order market dikirim dengan SL dan TP terpasang sejak awal; magic number khusus bot.
-- [ ] Pada +1R, SL digeser ke breakeven; setelah +1.5R, trailing stop berjarak 1 x ATR.
+- [ ] Pada +1R, SL digeser ke breakeven + buffer (spread + komisi per lot + `breakeven_buffer_points`, agar keluar di breakeven tidak rugi); setelah +1.5R, trailing stop berjarak 1 x ATR.
 - [ ] Status posisi di database selalu sinkron dengan MT5 (rekonsiliasi tiap siklus dan saat startup).
 - [ ] Kasus gagal: order ditolak broker/requote -> maks 1 retry, jika tetap gagal tercatat `rejected`, tidak diulang pada candle yang sama.
 - [ ] Mode `live` hanya jalan jika semua penjaga lolos (lihat TRD bagian 5); default dan paksa `demo`.
