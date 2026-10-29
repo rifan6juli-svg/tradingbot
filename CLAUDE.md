@@ -24,7 +24,8 @@ Baca sebelum bekerja. Jangan menebak jika dokumen tidak menjelaskan; tanyakan.
 7. Jangan mulai membangun sebelum user menyetujui dokumen (`/vibe-docs build`).
 
 ## Perintah
-- Install: `pip install -e .[dev]`
+- Setup VPS Windows baru: `scripts/setup_vps.ps1` (PowerShell sebagai Administrator; lihat TRD 6a)
+- Install (pengembangan): `pip install -e .[dev]` dengan Python 3.14
 - Jalankan bot + dashboard: `python -m tradingbot`
 - Jalankan lewat watchdog: `python -m tradingbot.watchdog` (atau `start.bat`)
 - Test: `pytest`

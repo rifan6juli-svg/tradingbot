@@ -10,19 +10,24 @@ Langkah bertanda **[Windows]** harus diuji manual di PC/VPS Windows dengan MT5 a
 ## Ringkasan Fase
 | Fase | Tujuan | Langkah | Estimasi |
 |---|---|---|---|
-| 1 | Fondasi | 1-5b | ~19 jam (2 minggu) |
+| 1 | Fondasi | 1-5b | ~23 jam (2-2.5 minggu) |
 | 2 | Alur inti (analisa, AI, risiko, eksekusi) | 6-15 | ~43 jam (4.5 minggu) |
 | 3 | Dashboard, jurnal & pelajaran AI | 16-21e | ~36 jam (3.5 minggu) |
 | 4 | Notifikasi, polesan, hardening, uji demo | 22-26 | ~17 jam + >= 4 minggu uji demo berjalan |
 
-Total 42 langkah, ~115 jam pengerjaan (~11-12 minggu pada ~10 jam/minggu), lalu >= 4 minggu uji demo.
+Total 43 langkah, ~119 jam pengerjaan (~12 minggu pada ~10 jam/minggu), lalu >= 4 minggu uji demo.
 
 ## Fase 1 - Fondasi
 
 - [ ] **1. Setup proyek**
   - Rujukan: TRD bagian 1, 3, 4
   - Kerjakan: `pyproject.toml` (dependensi dipin, `MetaTrader5` dengan penanda `sys_platform == "win32"`, extra `dev`: pytest, ruff), struktur folder `src/tradingbot/...` sesuai TRD 3, `.env.example` (semua variabel TRD 5), `.gitignore` (`.env`, `data/`, `logs/`), `start.bat` awal, `python -m tradingbot --version`
-  - Selesai jika: `pip install -e .[dev]` berhasil di Linux (tanpa `MetaTrader5`) dan di Windows; `ruff check .` dan `pytest` (satu tes dummy) lolos
+  - Selesai jika: `pip install -e .[dev]` berhasil di Linux (tanpa `MetaTrader5`) dan di Windows (diverifikasi lewat skrip langkah 1a di VPS); `ruff check .` dan `pytest` (satu tes dummy) lolos
+
+- [ ] **1a. Skrip setup VPS Windows [Windows]**
+  - Rujukan: F-10, TRD bagian 5 (secret, format `.env`), 5a (login MT5), 6a
+  - Kerjakan: `scripts/setup_vps.ps1` sesuai TRD 6a (PowerShell 5.1, ASCII, idempoten, verifikasi tanda tangan installer, `.env` interaktif dengan akses terbatas, pengaturan daya/Windows Update, Task Scheduler, cek akhir); `MT5_LOGIN`, `MT5_PASSWORD`, `MT5_SERVER` di `.env.example`; tes statis skrip (ASCII, `LIVE_ENABLED` dipaksa `false`); panduan singkat di README
+  - Selesai jika: di VPS Windows baru, satu perintah memasang semuanya dan cek akhir lolos (Python 3.14 di virtualenv, `python -m tradingbot --version`, `pytest` lolos di Windows, MT5 terpasang, task terdaftar); menjalankan ulang skrip tidak memasang ulang dan tidak menimpa `.env`; file `.env` hanya bisa dibaca user bot dan admin; log setup tidak memuat secret
 
 - [ ] **2. Database & skema**
   - Rujukan: BSD bagian 2-4, 7
@@ -41,13 +46,13 @@ Total 42 langkah, ~115 jam pengerjaan (~11-12 minggu pada ~10 jam/minggu), lalu 
 
 - [ ] **5a. MT5Broker: thread pekerja, koneksi & data [Windows]**
   - Rujukan: F-01, TRD bagian 5a, 9
-  - Kerjakan: `broker/worker.py` (satu thread pekerja, antrean, pemanggil async), implementasi `Broker` di `broker/mt5.py` lewat pekerja, normalisasi waktu ke UTC, pemetaan simbol via `symbol_map` + pencarian kandidat (`symbols_get`), ambil >= 2000 candle M15 dan >= 1000 H1, skrip `scripts/check_mt5.py` yang mencetak akun/tipe/margin mode/filling/candle
+  - Kerjakan: `broker/worker.py` (satu thread pekerja, antrean, pemanggil async), implementasi `Broker` di `broker/mt5.py` lewat pekerja, login otomatis dari `.env` (TRD 5a), normalisasi waktu ke UTC, pemetaan simbol via `symbol_map` + pencarian kandidat (`symbols_get`), ambil >= 2000 candle M15 dan >= 1000 H1, skrip `scripts/check_mt5.py` yang mencetak akun/tipe/margin mode/filling/candle
   - Selesai jika: tes: panggilan bersamaan dari beberapa coroutine diproses berurutan oleh pekerja (dengan broker palsu); di Windows, skrip mencetak saldo, tipe akun DEMO, dan jumlah candle yang diminta untuk kedua simbol kanonik lewat nama broker; kontrak tes `Broker` yang sama lolos untuk Mock dan MT5
 
 - [ ] **5b. MT5Broker: cek start, reconnect, batas broker [Windows]**
   - Rujukan: F-01, TRD bagian 5a
   - Kerjakan: cek saat start (Algo Trading aktif, akun hedging, `filling_mode`), status pasar simbol, abaikan posisi tanpa magic bot, reconnect (10 detik x 5, lalu tiap 60 detik tanpa batas, lanjut otomatis), helper validasi `stops_level`/`freeze_level`, `order_check`, riwayat deal
-  - Selesai jika: Algo Trading dimatikan -> start ditolak dengan pesan; mematikan MT5 memicu status terputus, menyalakan kembali setelah > 1 menit membuat bot lanjut sendiri; posisi manual di terminal tidak diambil alih; `order_check` mengembalikan info margin di akun demo; tes helper `stops_level` lolos
+  - Selesai jika: password MT5 salah -> start ditolak dengan pesan tanpa password; Algo Trading dimatikan -> start ditolak dengan pesan; mematikan MT5 memicu status terputus, menyalakan kembali setelah > 1 menit membuat bot lanjut sendiri; posisi manual di terminal tidak diambil alih; `order_check` mengembalikan info margin di akun demo; tes helper `stops_level` lolos
 
 ## Fase 2 - Alur Inti
 
@@ -222,8 +227,8 @@ Total 42 langkah, ~115 jam pengerjaan (~11-12 minggu pada ~10 jam/minggu), lalu 
 
 - [ ] **25. Paket Windows & dokumentasi pakai**
   - Rujukan: TRD bagian 6
-  - Kerjakan: `start.bat` final, panduan di `README.md`: pasang Python dan MT5, akun demo khusus bot dengan saldo setara rencana modal live, isi `.env` (termasuk Telegram), Task Scheduler untuk MT5 + watchdog saat login, checklist uptime (sleep, Windows Update, Algo Trading), opsi VPS Windows
-  - Selesai jika: orang lain dapat memasang dan menjalankan dari nol di Windows bersih mengikuti README
+  - Kerjakan: `start.bat` final, panduan lengkap di `README.md`: setup VPS dengan `scripts/setup_vps.ps1`, akun demo khusus bot dengan saldo setara rencana modal live, isi `.env` (termasuk Telegram dan login MT5), checklist uptime, auto-logon opsional, cara update (jalankan ulang skrip)
+  - Selesai jika: orang lain dapat memasang dan menjalankan dari nol di VPS Windows baru mengikuti README
 
 - [ ] **26. Uji demo >= 4 minggu & evaluasi**
   - Rujukan: PRD bagian 3, F-07, F-08
@@ -255,6 +260,8 @@ Total 42 langkah, ~115 jam pengerjaan (~11-12 minggu pada ~10 jam/minggu), lalu 
 
 ## Catatan & Utang Teknis
 <!-- Tambahkan: tanggal - langkah - catatan/keputusan -->
+- 2026-10-29 - 1, 1a - Langkah 1 diverifikasi ulang dengan Python 3.14 di Linux (install, ruff, pytest, `--version`, `pip check`) dan resolusi dependensi Windows win_amd64/cp314 lewat dry-run pip (42 paket, semua wheel biner). `scripts/setup_vps.ps1` selesai ditulis beserta tes statis (ASCII, tanpa operator PowerShell 7, tanpa `Start-Process -Wait`, `LIVE_ENABLED` dipaksa `false`, key `.env` cocok dengan `.env.example`), tetapi belum pernah dijalankan: PowerShell tidak tersedia di lingkungan pengembangan. Langkah 1 dan 1a menunggu satu kali jalan di VPS Windows sebelum dicentang. README diganti menjadi README proyek dengan panduan setup VPS.
+- 2026-10-29 - update - Revisi 6: F-10 instalasi otomatis VPS Windows (langkah baru 1a, keputusan owner); Python naik dari 3.11 ke 3.14 (keputusan owner; installer Windows resmi 3.11 tidak lagi diterbitkan, semua dependensi biner punya wheel cp314); login MT5 otomatis lewat `MT5_LOGIN`/`MT5_PASSWORD`/`MT5_SERVER` di `.env` (keputusan owner); repo publik sekarang, privat nanti (skrip mendukung keduanya). Total 43 langkah, ~119 jam.
 - 2026-10-29 - 1 - Setup proyek. Dependensi dipin ke rilis stabil berumur >= 2 minggu: fastapi 0.143.1, uvicorn 0.54.0, jinja2 3.1.6, sqlalchemy 2.1.4, alembic 1.20.0, pydantic 2.14.1, pandas 3.0.6, numpy 2.4.6, httpx 0.28.1, anthropic 1.14.0, openai 3.31.0, MetaTrader5 5.0.6231 (hanya win32), pytest 9.1.1, ruff 0.17.0. `uvicorn` ditambahkan ke TRD (server ASGI untuk FastAPI). `requires-python` dikunci 3.11. `.gitattributes` membuat `start.bat` CRLF. Ruff mengecualikan `*.md` agar `ruff format .` tidak menyentuh dokumen. Folder `migrations/` dan `scripts/` dibuat di langkah 2 dan 5a. Verifikasi: Linux lolos (install, ruff, pytest, `--version`); resolusi dependensi Windows (win_amd64, cp311) lolos lewat dry-run pip; instalasi nyata di Windows belum dijalankan.
 - 2026-10-29 - update - Revisi 5 (audit ketiga): teks pelajaran dari template; hasil hipotetis (`paper_outcomes`) untuk verifikasi pelajaran dan scorecard model (keputusan owner); rollback hanya di job mingguan dengan mengaktifkan kembali versi lama, cooldown dan penggabungan duplikat pelajaran; skema fitur `f1` (TRD 5c); data 2000 M15 / 1000 H1; `order_check` margin dan `deviation`; kunci satu instans, kunci eksekusi, idempotensi order; thread pekerja MT5; penanda platform `MetaTrader5`; rem dan baseline tahan restart dari riwayat deal; metrik R; batas total pelajaran dan peringatan tidak ada entry; kesehatan dan anggaran AI (`ai_calls`); spread/slippage relatif ATR; `excess_loss`/`excess_risk`; blokir rutin dipisah dari `risk_events`; langkah minimum trailing; syarat kelayakan live diperketat; `settings_changes`; `Clock` dan mock realistis; F-09 notifikasi Telegram satu arah + watchdog (keputusan owner); panel "Kenapa bot tidak trading"; `DASHBOARD_PORT`; dependensi dipin. Langkah 10, 13, 19 dipecah; langkah baru 20a, 20b, 23a, 23b; total 42 langkah, estimasi ~115 jam.
 - 2026-10-29 - utang - Saat live disetujui: mulai dengan risiko 0.25% per trade untuk 30 trade pertama sebelum kembali ke 0.5%. Di luar scope MVP.

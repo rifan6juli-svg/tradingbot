@@ -1,7 +1,5 @@
 """Entry proses bot. Loop trading, job, dan web dibuat di langkah 15 (docs/IPD.md)."""
 
-from __future__ import annotations
-
 import argparse
 
 from tradingbot import __version__

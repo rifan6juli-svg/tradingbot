@@ -50,10 +50,11 @@ Prioritas: P0 = wajib rilis, P1 = sebaiknya ada, P2 = jika sempat.
 | F-07 | Jurnal & evaluasi performa | P1 | Sebagai trader, saya ingin statistik, ringkasan AI, dan scorecard tiap model, agar bisa menilai kelayakan bot dan mengganti model yang lemah |
 | F-08 | Evaluasi & pelajaran AI | P1 | Sebagai trader, saya ingin tiap AI mengevaluasi keputusannya sendiri dan menerapkan pelajaran secara otomatis dengan pengaman, agar kualitas keputusan membaik tanpa menaikkan risiko |
 | F-09 | Notifikasi kritis & watchdog | P1 | Sebagai trader, saya ingin menerima pesan Telegram saat terjadi kejadian kritis dan bot dijalankan ulang otomatis jika mati, agar bot aman walau tidak diawasi |
+| F-10 | Instalasi otomatis VPS Windows | P0 | Sebagai trader, saya ingin satu skrip memasang semua yang dibutuhkan di VPS Windows baru, agar bot bisa berjalan tanpa setup manual yang panjang |
 
 ### Acceptance Criteria
 **F-01 Koneksi MT5 & data pasar**
-- [ ] Bot terhubung ke terminal MT5 yang sedang berjalan dan membaca saldo, equity, tipe akun (demo/real).
+- [ ] Bot terhubung ke terminal MT5 dan login otomatis memakai `MT5_LOGIN`, `MT5_PASSWORD`, `MT5_SERVER` dari `.env` (jika kosong, memakai akun yang sedang login di terminal), lalu membaca saldo, equity, tipe akun (demo/real). Login gagal -> bot menolak start dengan pesan jelas tanpa menampilkan password.
 - [ ] Mengambil >= 2000 candle M15 dan >= 1000 candle H1 terakhir per simbol (cukup untuk median ATR 20 hari bursa dan EMA200 yang konvergen).
 - [ ] Nama simbol broker fleksibel: tiap simbol kanonik (`XAUUSD`, `EURUSD`) dipetakan ke nama broker lewat `symbol_map` (mis. `XAUUSDm`, `GOLD`). Saat start, bot mencari kandidat di MT5 dan mengusulkan pemetaan; owner mengonfirmasi/mengubahnya di S-04. Bot menolak start jika simbol belum terpetakan.
 - [ ] Saat start, bot memeriksa: Algo Trading aktif di terminal, akun bertipe **hedging** (netting ditolak), dan mode pengisian order (`filling_mode`) yang didukung simbol; gagal salah satu -> bot menolak start dengan pesan jelas.
@@ -150,6 +151,15 @@ Prioritas: P0 = wajib rilis, P1 = sebaiknya ada, P2 = jika sempat.
 - [ ] Watchdog: proses terpisah menjalankan bot, menjalankan ulang jika bot keluar/crash atau heartbeat tidak diperbarui > 2 menit (maks 5 kali per jam, lalu berhenti dan memberi notifikasi "bot mati, butuh tindakan"), dan mengirim notifikasi setiap restart.
 - [ ] Kasus gagal: kirim gagal -> retry 3 kali dengan jeda, lalu dicatat `failed`; status terakhir terlihat di S-01; notifikasi tidak pernah menghambat trading.
 
+**F-10 Instalasi otomatis VPS Windows**
+- [ ] Satu skrip PowerShell (`scripts/setup_vps.ps1`), dijalankan sekali sebagai Administrator di VPS Windows baru (Windows Server 2022/2025 atau Windows 10/11 64-bit), memasang Python 3.14, Git, dan terminal MT5 tanpa interaksi installer; tanda tangan digital tiap installer diverifikasi sebelum dijalankan.
+- [ ] Skrip meng-clone repo (publik tanpa token; privat dengan token GitHub read-only yang ditanyakan secara tersembunyi dan disimpan di Windows Credential Manager, bukan di file atau URL), membuat virtualenv, dan memasang dependensi.
+- [ ] Skrip membuat `.env` dari `.env.example`: secret ditanyakan dengan input tersembunyi, `DASHBOARD_TOKEN` dibuat acak, `MT5_PATH` diisi otomatis, `LIVE_ENABLED` selalu `false`, dan akses file `.env` dibatasi ke user bot.
+- [ ] Skrip mengatur Windows untuk uptime (matikan sleep/hibernate, cegah restart otomatis Windows Update saat user login, jam aktif mencakup sesi trading) dan mendaftarkan Task Scheduler: MT5 dan bot (lewat `start.bat`) berjalan otomatis saat user login, tanpa hak admin.
+- [ ] Aman dijalankan ulang: komponen yang sudah ada dilewati, repo diperbarui (`git pull`), dependensi diperbarui, `.env` yang sudah ada tidak ditimpa kecuali diminta. Menjalankan ulang skrip juga menjadi cara update bot.
+- [ ] Di akhir, skrip menjalankan cek otomatis (Python 3.14 di virtualenv, `pip check`, `python -m tradingbot --version`, tes, MT5 terpasang, kelengkapan `.env`, `LIVE_ENABLED=false`, task terdaftar) dan menampilkan ringkasan lolos/peringatan/gagal; log setup tidak memuat secret.
+- [ ] Langkah yang tetap manual ditampilkan di akhir: memilih broker dan akun demo, memastikan tombol Algo Trading di MT5 aktif, auto-logon (opsional, lewat Sysinternals Autologon), dan memutus RDP dengan "Disconnect" (bukan "Sign out").
+
 ## 6. Di Luar Scope (jangan dikerjakan)
 - Pasar selain forex/emas di MT5 (kripto, saham), instrumen selain XAUUSD dan EURUSD.
 - Backtesting engine, optimasi parameter otomatis, machine learning/fine-tuning/training model sendiri. Pelajaran tertulis di prompt dan hasil hipotetis sinyal (F-08) bukan backtesting/training dan termasuk scope.
@@ -163,15 +173,17 @@ Prioritas: P0 = wajib rilis, P1 = sebaiknya ada, P2 = jika sempat.
 
 ## 7. Kebutuhan Non-Fungsional
 - Performa: siklus keputusan (data -> AI -> order) <= 60 detik setelah candle M15 ditutup; dashboard termuat < 2 detik.
-- Keamanan & privasi: API key, token dashboard, dan token Telegram hanya di `.env`; dashboard hanya `127.0.0.1` pada `DASHBOARD_PORT` (default 8000) dan menolak header `Host` selain `127.0.0.1:<port>`/`localhost:<port>` (anti DNS rebinding); aksi ubah/kontrol butuh header token lokal; log dan pesan Telegram tidak memuat secret; koneksi keluar hanya ke API Anthropic, OpenAI, Telegram, dan feed kalender.
+- Keamanan & privasi: API key, password MT5, token dashboard, dan token Telegram hanya di `.env` (akses file dibatasi ke user bot); dashboard hanya `127.0.0.1` pada `DASHBOARD_PORT` (default 8000) dan menolak header `Host` selain `127.0.0.1:<port>`/`localhost:<port>` (anti DNS rebinding); aksi ubah/kontrol butuh header token lokal; log dan pesan Telegram tidak memuat secret; koneksi keluar hanya ke API Anthropic, OpenAI, Telegram, dan feed kalender.
 - Keandalan: bot pulih otomatis dari restart (rekonsiliasi posisi, rem dari riwayat deal), dari putus koneksi MT5/internet, dan dari crash (watchdog F-09).
-- Platform: Windows 10/11 64-bit (PC pribadi atau VPS Windows; VPS disarankan untuk uptime 24/5), MT5 terpasang, Python 3.11, browser modern (Chrome/Edge) untuk dashboard.
+- Platform: VPS Windows (disarankan untuk uptime 24/5; Windows Server 2022/2025) atau PC Windows 10/11, 64-bit, dipasang dengan F-10; MT5; Python 3.14; browser modern (Chrome/Edge) untuk dashboard.
 - Aksesibilitas: kontras teks >= 4.5:1, dapat dipakai keyboard.
 
 ## 8. Asumsi, Risiko, Dependensi
 - [ASUMSI] Broker menyediakan emas dan EURUSD dengan nama apa pun; pemetaan lewat `symbol_map` (F-01).
 - [ASUMSI] Pengguna sudah punya akun demo MT5, API key Anthropic + OpenAI, dan bot Telegram (token + chat ID).
 - Akun MT5 khusus bot (keputusan owner); trade manual tidak dilakukan di akun yang sama.
+- Bot berjalan di VPS Windows yang diakses lewat RDP (keputusan owner). Repo GitHub saat ini publik dan akan dijadikan privat; F-10 mendukung keduanya.
+- [ASUMSI] Spesifikasi VPS minimal 2 vCPU, 4 GB RAM, 40 GB disk.
 - Saldo akun demo disamakan dengan rencana modal live, agar ukuran lot dan hasil uji realistis.
 - Kalender ekonomi: default feed JSON mingguan Forex Factory (`nfs.faireconomy.media`), gratis tetapi **tidak resmi**, tanpa jaminan layanan, hanya minggu berjalan. Bisa mati/berubah tanpa pemberitahuan; karena itu ada fail-safe, provider yang dapat diganti, dan jendela blokir manual. Belum diverifikasi dari lingkungan pengembangan ini (jaringan diblokir); diuji di langkah 7.
 - [ASUMSI] Model dipanggil hanya saat candle M15 ditutup (bukan tiap tick) untuk mengendalikan biaya API; estimasi ~210 panggilan keputusan/hari dengan 2 model (2 simbol x ~52 candle dalam sesi 07:00-20:00 UTC x 2 model), naik sebanding jumlah model aktif (4 model -> ~420), lebih sedikit karena guard memblokir sebelum AI dipanggil. F-08 menambah 1 refleksi per model per trade tertutup + 2-4 panggilan penentang per minggu. Semua dibatasi `max_ai_calls_per_day`.
@@ -189,6 +201,8 @@ Prioritas: P0 = wajib rilis, P1 = sebaiknya ada, P2 = jika sempat.
 - Risiko: hasil hipotetis tanpa biaya dan trailing cenderung lebih optimistis dari hasil nyata; hanya dipakai untuk perbandingan relatif.
 - Risiko: beberapa model dari penyedia yang sama cenderung berpendapat mirip. Mitigasi: `require_provider_diversity`.
 - Risiko: PC pribadi bisa sleep, restart karena Windows Update, atau mati listrik. Mitigasi: watchdog, Task Scheduler, checklist README, opsi VPS.
+- Risiko: password akun MT5 tersimpan di `.env` VPS (login otomatis, keputusan owner). Mitigasi: hanya di `.env` dengan akses dibatasi ke user bot, akun demo dulu, tidak pernah ditulis ke log, database, atau Telegram.
+- Risiko: URL atau opsi installer pihak ketiga (Python, Git, MT5) berubah. Mitigasi: URL dapat diganti lewat parameter skrip, tanda tangan digital diverifikasi, diuji di VPS (langkah 1a).
 - Risiko: notifikasi Telegram tidak terkirim. Mitigasi: retry, status di dashboard; trading tidak bergantung pada notifikasi.
 - Dependensi: terminal MT5 + paket Python `MetaTrader5` (hanya Windows), API Anthropic, API OpenAI, Telegram Bot API, feed kalender ekonomi.
 
@@ -197,4 +211,4 @@ Prioritas: P0 = wajib rilis, P1 = sebaiknya ada, P2 = jika sempat.
 - Mata uang dan ukuran saldo akun demo (disamakan dengan rencana modal live; memengaruhi lot minimum)?
 - ID model OpenAI yang akan dipakai (wajib diisi owner di `.env`; default Claude: `claude-sonnet-5-5`).
 - Harga per token tiap model untuk `ai_price_table` (opsional; tanpa ini hanya jumlah token yang ditampilkan).
-- Bot dijalankan di PC pribadi atau VPS Windows?
+- Penyedia VPS Windows yang dipakai?

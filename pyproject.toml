@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "tradingbot"
 description = "Bot trading MT5 dengan panel multi-AI (Claude + OpenAI); tahap awal akun demo."
 readme = "README.md"
-requires-python = ">=3.11,<3.12"
+requires-python = ">=3.14,<3.15"
 dynamic = ["version"]
 # Versi dipin (TRD bagian 1); upgrade dilakukan sengaja.
 dependencies = [
@@ -38,7 +38,7 @@ where = ["src"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py314"
 src = ["src", "tests"]
 extend-exclude = ["*.md"]
 
