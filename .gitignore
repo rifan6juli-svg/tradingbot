@@ -1,0 +1,17 @@
+# Secret dan data runtime
+.env
+data/
+logs/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Alat
+.pytest_cache/
+.ruff_cache/

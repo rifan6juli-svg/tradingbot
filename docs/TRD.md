@@ -5,8 +5,9 @@
 ## 1. Tech Stack
 | Lapisan | Pilihan | Alasan (1 kalimat) |
 |---|---|---|
-| Bahasa/runtime | Python 3.11 (64-bit) | Paket `MetaTrader5` resmi hanya untuk Python di Windows. |
+| Bahasa/runtime | Python 3.14 (64-bit) | Paket `MetaTrader5` resmi hanya untuk Python di Windows; 3.14 adalah versi stabil terbaru dengan installer Windows resmi, dan semua dependensi biner proyek punya wheel cp314. |
 | Backend & loop bot | FastAPI + asyncio (satu proses bot) | Satu proses menjalankan loop trading, job, dan API dashboard, tanpa orkestrasi tambahan. |
+| Server ASGI | `uvicorn` | Menjalankan aplikasi FastAPI (dashboard + API) di dalam proses bot. |
 | Pengawas | Proses `watchdog` terpisah (Python) | Menjalankan ulang bot saat crash/macet dan mengirim notifikasi (F-09). |
 | Frontend | Jinja2 + HTML/CSS + JS polos (polling 5 detik) | Dashboard lokal sederhana, tanpa build step. |
 | Database | SQLite mode WAL (file `data/bot.db`) + SQLAlchemy 2.0 + Alembic | Satu pengguna, tanpa server DB, migrasi terversi, baca-tulis bersamaan aman. |
@@ -16,9 +17,10 @@
 | HTTP klien | `httpx` | Kalender ekonomi dan Telegram, timeout jelas. |
 | Notifikasi | Telegram Bot API (satu arah) lewat `httpx` | Gratis, sampai ke HP owner, tanpa server tambahan. |
 | Auth | Tidak ada login; bind `127.0.0.1` + header `X-Local-Token` untuk aksi tulis | Pengguna tunggal, lokal. |
-| Hosting | PC Windows pemilik atau VPS Windows; `start.bat` menjalankan watchdog | Terminal MT5 harus jalan di mesin yang sama. |
+| Hosting | VPS Windows (disarankan) atau PC Windows; dipasang oleh `scripts/setup_vps.ps1`; `start.bat` menjalankan watchdog | Terminal MT5 harus jalan di mesin yang sama. |
+| Setup | PowerShell 5.1 (bawaan Windows) | Skrip instalasi berjalan di VPS baru tanpa alat tambahan. |
 
-Versi runtime & package manager: Python 3.11, `pip` + `venv`, dependensi di `pyproject.toml` dengan versi dipin (`==`); upgrade dilakukan sengaja. `MetaTrader5` dipasang dengan penanda `sys_platform == "win32"`, sehingga `pip install -e .[dev]` juga berhasil di Linux/CI (memakai `MockBroker`).
+Versi runtime & package manager: Python 3.14, `pip` + `venv`, dependensi di `pyproject.toml` dengan versi dipin (`==`); upgrade dilakukan sengaja. `MetaTrader5` dipasang dengan penanda `sys_platform == "win32"`, sehingga `pip install -e .[dev]` juga berhasil di Linux/CI (memakai `MockBroker`).
 
 ## 2. Arsitektur
 Dua proses. **Watchdog** (`python -m tradingbot.watchdog`, dijalankan `start.bat`) menjalankan proses bot, memantau heartbeat, dan menjalankan ulang bila crash/macet (F-09). **Proses bot** (satu instans, dikunci `data/bot.lock`) berisi orkestrator, loop posisi, job, notifikasi, dan API dashboard. Semua panggilan MT5 lewat satu thread pekerja (`broker/worker.py`).
@@ -82,7 +84,7 @@ src/tradingbot/
   notify/              # telegram.py, events.py (jenis kejadian, cooldown)
   web/                 # app.py, api.py, templates/, static/
 migrations/            # Alembic
-scripts/               # check_mt5.py
+scripts/               # setup_vps.ps1 (F-10), check_mt5.py
 tests/
 docs/
 data/                  # bot.db, bot.lock, heartbeat (di-gitignore)
@@ -93,7 +95,7 @@ pyproject.toml
 ```
 
 ## 4. Konvensi Kode
-- Bahasa & mode ketat: Python 3.11, type hints wajib di fungsi publik, `mypy` tidak diwajibkan; `from __future__ import annotations`.
+- Bahasa & mode ketat: Python 3.14, type hints wajib di fungsi publik, `mypy` tidak diwajibkan; tidak perlu `from __future__ import annotations` (anotasi dievaluasi tertunda secara bawaan di 3.14). Skrip PowerShell harus kompatibel PowerShell 5.1 dan hanya berisi karakter ASCII (PowerShell 5.1 salah membaca UTF-8 tanpa BOM).
 - Penamaan: file/fungsi `snake_case`, kelas `PascalCase`, tabel `snake_case` jamak, enum nilai huruf kecil.
 - Validasi input: Pydantic v2 untuk request API, keluaran AI (`ai/schema.py`), usulan pelajaran, dan config.
 - Penanganan error: exception khusus (`BrokerError`, `AIError`, `RiskBlocked`); error API format `{ "error": { "code", "message" } }`; kejadian risiko dicatat ke `risk_events`, blokir rutin ke `signals.block_reason`, tidak ada error yang ditelan.
@@ -110,13 +112,15 @@ pyproject.toml
   2. `settings.mode = 'live'`
   3. Tipe akun MT5 = real (`account_info.trade_mode`) konsisten dengan mode
   4. Default dan fallback selalu `demo`; ketidakcocokan -> bot berhenti dan mencatat `risk_events.type = 'live_guard'`.
-- Data sensitif: API key, token dashboard, dan token Telegram hanya di `.env` (di-gitignore); log dan pesan Telegram disaring dari secret; pesan Telegram hanya memuat angka dalam %, tanpa saldo nominal.
+- Data sensitif: API key, password MT5, token dashboard, dan token Telegram hanya di `.env` (di-gitignore; di VPS aksesnya dibatasi ke user bot oleh skrip setup); log dan pesan Telegram disaring dari secret; pesan Telegram hanya memuat angka dalam %, tanpa saldo nominal.
 - Koneksi keluar: hanya API Anthropic, API OpenAI, `api.telegram.org`, dan feed kalender.
 - Sumber konfigurasi: tabel `settings` adalah sumber kebenaran runtime; nilai `.env` (`ANTHROPIC_MODEL` dan `OPENAI_MODEL` -> isi awal `ai_models`; `NEWS_PROVIDER`) hanya dipakai sebagai nilai awal saat seed. Secret (API key, token, `LIVE_ENABLED`) hanya di `.env`, tidak pernah di `settings`. Setiap perubahan `settings` dicatat di `settings_changes`.
-- Secrets & variabel: lewat environment variable, daftar di `.env.example`: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_MODEL` (contoh `claude-sonnet-5-5`), `OPENAI_MODEL` (wajib diisi owner), `NEWS_PROVIDER`, `MT5_PATH` (opsional), `DASHBOARD_TOKEN`, `DASHBOARD_PORT`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `LIVE_ENABLED`, `DB_PATH`.
+- Secrets & variabel: lewat environment variable, daftar di `.env.example`: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_MODEL` (contoh `claude-sonnet-5-5`), `OPENAI_MODEL` (wajib diisi owner), `NEWS_PROVIDER`, `MT5_PATH` (opsional), `MT5_LOGIN`, `MT5_PASSWORD`, `MT5_SERVER` (login otomatis; kosong = akun yang sedang login di terminal), `DASHBOARD_TOKEN`, `DASHBOARD_PORT`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `LIVE_ENABLED`, `DB_PATH`.
+- Format `.env`: satu `KEY=nilai` per baris, tanpa tanda kutip dan tanpa komentar di baris yang sama; nilai diambil apa adanya setelah tanda `=` pertama (password boleh berisi `#` atau spasi).
 
 ## 5a. Aturan Broker MT5
 - Semua panggilan `MetaTrader5` dijalankan berurutan di satu thread pekerja (`broker/worker.py`), termasuk yang dipicu request dashboard; event loop menunggu hasilnya secara async.
+- Login: `initialize(path=MT5_PATH, login=MT5_LOGIN, password=MT5_PASSWORD, server=MT5_SERVER)` bila ketiganya terisi; jika kosong, memakai akun yang sedang login di terminal. Login gagal -> tolak start dengan pesan tanpa password.
 - Akun wajib bertipe hedging (`account_info.margin_mode`); netting -> tolak start.
 - Algo Trading terminal wajib aktif (`terminal_info.trade_allowed`); jika tidak -> tolak start dengan pesan.
 - Data: ambil >= 2000 candle M15 dan >= 1000 candle H1; hanya candle yang sudah tutup dipakai untuk fitur.
@@ -178,11 +182,20 @@ Paket untuk AI dan sumber kunci kondisi pelajaran. Disimpan sebagai `signals.fea
 | Env | Tujuan | Catatan |
 |---|---|---|
 | dev/CI (Linux/Windows) | Tes unit dengan `MockBroker`, AI palsu, jam palsu | Tanpa MT5, tanpa API key, tanpa Telegram. |
-| windows-demo | Jalan nyata di akun demo khusus bot | PC pribadi atau VPS Windows (disarankan untuk uptime 24/5); MT5 login ke akun demo; `start.bat` menjalankan watchdog; Task Scheduler menjalankan MT5 dan `start.bat` saat login. |
+| windows-demo | Jalan nyata di akun demo khusus bot | VPS Windows (disarankan untuk uptime 24/5) atau PC; dipasang dengan `scripts/setup_vps.ps1` (6a); bot login otomatis ke akun demo; Task Scheduler menjalankan MT5 dan `start.bat` (watchdog) saat login. |
 | windows-live | Ditunda | Hanya setelah kriteria PRD bagian 3 terpenuhi dan disetujui owner. |
 
 Checklist uptime (dimuat di README): matikan sleep/hibernate, atur jam aktif Windows Update, auto-login + Task Scheduler, Algo Trading MT5 aktif, koneksi internet stabil.
 Variabel lingkungan: lihat `.env.example`.
+
+### 6a. Setup VPS otomatis (`scripts/setup_vps.ps1`, F-10)
+- Cara jalan (repo publik): PowerShell sebagai Administrator, unduh skrip dari `raw.githubusercontent.com` lalu jalankan. Repo privat: salin skrip lewat RDP lalu jalankan dengan `-PrivateRepo` (token ditanyakan secara tersembunyi). Jalankan sebagai user yang nanti login lewat RDP.
+- Parameter: `-InstallDir` (default `C:\tradingbot`), `-RepoUrl`, `-Branch` (default `main`), `-PythonVersion` (default: patch 3.14 terbaru yang punya installer Windows di python.org), `-Mt5InstallerUrl` (default installer resmi MetaQuotes; bisa diganti installer broker) + `-Mt5SignerPattern`, `-PrivateRepo`, `-ReconfigureEnv`, `-NoDev`, `-SkipWindowsTweaks`.
+- Urutan: cek Windows 64-bit, Administrator, PowerShell >= 5.1, TLS 1.2 -> Python 3.14 (installer resmi, silent, ke `C:\Python314`) -> Git for Windows (rilis terbaru, silent) -> MT5 (`mt5setup.exe /auto`) -> clone/pull repo -> virtualenv + `pip install -e .[dev]` (dibuat ulang jika bukan Python 3.14) -> `.env` -> folder `data/`, `logs/`, izin tulis untuk user bot -> migrasi database bila `alembic.ini` sudah ada -> pengaturan daya dan Windows Update -> Task Scheduler (`TradingBot-MT5` saat login, `TradingBot-Bot` saat login + jeda 60 detik, tanpa hak admin) -> cek akhir.
+- Setiap installer diverifikasi tanda tangan digitalnya (Python Software Foundation, Johannes Schindelin untuk Git for Windows, MetaQuotes untuk MT5); tidak valid -> instalasi dibatalkan.
+- Idempoten: komponen yang ada dilewati; `.env` tidak ditimpa tanpa `-ReconfigureEnv`. Log setup di `%ProgramData%\TradingBot\setup-<waktu>.log`, tanpa secret.
+- Tidak diotomatiskan: memilih broker/akun demo, tombol Algo Trading MT5, auto-logon (disarankan Sysinternals Autologon yang menyimpan password terenkripsi; skrip tidak menulis password Windows ke registry).
+
 CI/CD: tidak ada untuk MVP; `ruff` dan `pytest` dijalankan lokal.
 
 ## 7. Strategi Testing
@@ -211,3 +224,4 @@ CI/CD: tidak ada untuk MVP; `ruff` dan `pytest` dijalankan lokal.
 - Jam/zona waktu server broker berbeda dari UTC -> semua waktu dinormalisasi ke UTC di `broker/mt5.py`.
 - PC sleep/restart -> watchdog, Task Scheduler, checklist, opsi VPS.
 - Telegram gagal -> retry, status di dashboard, trading tidak bergantung padanya.
+- URL/opsi installer pihak ketiga berubah -> parameter URL di skrip setup, verifikasi tanda tangan, diuji di VPS.

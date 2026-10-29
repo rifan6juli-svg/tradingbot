@@ -52,12 +52,13 @@ Guard dan rem dicek dari yang paling murah: kill switch, rugi mingguan, jeda kal
 **Pemicu:** bot start (oleh watchdog), atau tiap siklus.
 **Alur utama:**
 1. Bot mengunci `data/bot.lock`; gagal mengunci berarti instans lain sudah berjalan -> keluar dengan pesan.
-2. Lewat thread pekerja MT5, bot memanggil `initialize`, membaca info akun, dan memeriksa Algo Trading, tipe akun hedging, `filling_mode`, serta `symbol_map`.
+2. Lewat thread pekerja MT5, bot memanggil `initialize` (login otomatis memakai `MT5_LOGIN`/`MT5_PASSWORD`/`MT5_SERVER` bila diisi), membaca info akun, dan memeriksa Algo Trading, tipe akun hedging, `filling_mode`, serta `symbol_map`.
 3. Bot membandingkan tipe akun dengan `settings.mode` (penjaga live, TRD 5).
 4. Tiap siklus mengambil >= 2000 candle M15 dan >= 1000 candle H1 per simbol; S-01 menampilkan status "terhubung", saldo, equity.
 
 **Alur alternatif / gagal:**
 - Terminal tidak berjalan -> status "terputus" (S-01), coba lagi tiap 10 detik (5 kali) lalu tiap 60 detik tanpa batas, catat `risk_events` (`broker_error`); terputus > 5 menit -> notifikasi F-09; trading lanjut otomatis saat tersambung.
+- Login MT5 gagal (login/password/server salah) -> bot menolak start dengan pesan tanpa password; watchdog mencoba ulang lalu mengirim `bot_down` bila terus gagal.
 - Algo Trading nonaktif, akun netting, atau `filling_mode` tidak didukung -> bot menolak start dengan pesan penyebab.
 - Simbol belum terpetakan / tidak ditemukan -> bot menolak start; S-04 menampilkan kandidat dari MT5 (mis. `XAUUSDm`, `GOLD`) untuk dipilih dan disimpan ke `symbol_map`.
 - Tipe akun tidak cocok dengan mode -> bot berhenti (`live_guard`).
