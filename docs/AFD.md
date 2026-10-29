@@ -52,7 +52,7 @@ flowchart TD
 
 **Alur alternatif / gagal:**
 - Terminal tidak berjalan -> status "terputus" (S-01), coba lagi tiap 10 detik, maks 5 kali, lalu bot berhenti trading dan mencatat `risk_events` (`broker_error`).
-- Simbol tidak ditemukan -> bot menolak start dengan pesan nama simbol yang salah.
+- Simbol belum terpetakan / tidak ditemukan -> bot menolak start; S-04 menampilkan kandidat dari MT5 (mis. `XAUUSDm`, `GOLD`) untuk dipilih dan disimpan ke `symbol_map`.
 - Tipe akun tidak cocok dengan mode -> bot berhenti (`live_guard`).
 
 ### F-02 Analisa teknikal & filter berita
@@ -76,7 +76,7 @@ flowchart TD
 
 **Alur alternatif / gagal:**
 - Timeout 30 detik / error API / JSON tidak valid -> opini ditandai error, dihitung tidak setuju, sinyal `skip`.
-- Salah satu penyedia dinonaktifkan di S-04 -> konsensus hanya dari model aktif; minimal 2 model aktif, jika kurang bot tidak mengeksekusi.
+- Salah satu penyedia dinonaktifkan di S-04 -> konsensus hanya dari model aktif; jumlah model aktif harus >= `min_ai_models` (default 2), jika kurang bot tidak mengeksekusi.
 
 ### F-04 Manajemen risiko & kill switch
 **Pemicu:** konsensus buy/sell; juga dicek tiap 10 detik untuk batas harian.
@@ -84,13 +84,13 @@ flowchart TD
 1. Gabungkan SL (terjauh valid) dan TP (terdekat) dari semua AI.
 2. Validasi jarak SL 0.8-3.0 x ATR dan reward:risk >= 1.5.
 3. Hitung lot dari risiko% dan jarak SL, bulatkan ke `volume_step`.
-4. Pantau rugi harian; jika mencapai batas -> kill switch ON, tutup semua posisi, catat `risk_events`.
+4. Pantau rugi harian; jika mencapai batas -> kill switch ON (blokir entry), perlakukan posisi sesuai `kill_switch_mode` (default `protect_winners`: tutup yang rugi, kunci breakeven pada yang untung dan biarkan berjalan; `close_all`: tutup semua), catat `risk_events`.
 
 **Alur alternatif / gagal:**
 - SL/TP tidak valid -> `blocked` (`invalid_sltp`).
 - Lot hasil hitung < `volume_min` -> `blocked` (`lot_too_small`, risiko terlalu kecil untuk saldo).
 - Maks posisi / spread / sesi / kill switch aktif -> `blocked` dengan alasan masing-masing.
-- Kill switch manual: owner klik tombol (S-01/S-04) -> konfirmasi -> semua posisi ditutup, status "KILL SWITCH ON".
+- Kill switch manual: owner klik tombol (S-01/S-04) -> konfirmasi -> perlakuan posisi sesuai `kill_switch_mode`, status "KILL SWITCH ON". Tombol terpisah "Tutup semua sekarang" selalu menutup semua posisi.
 - Reset kill switch: tombol Reset (S-04) dengan konfirmasi; otomatis juga reset pada hari UTC berikutnya untuk pemicu batas harian.
 
 ### F-05 Eksekusi order & manajemen posisi

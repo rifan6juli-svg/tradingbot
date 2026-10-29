@@ -41,7 +41,7 @@ Total pengerjaan ~61 jam (~6 minggu pada ~10 jam/minggu), lalu >= 4 minggu uji d
 
 - [ ] **5. MT5Broker [Windows]**
   - Rujukan: F-01, TRD bagian 9
-  - Kerjakan: implementasi `Broker` di `broker/mt5.py`, normalisasi waktu ke UTC, pemetaan sufiks simbol, reconnect (10 detik, maks 5 kali), skrip `scripts/check_mt5.py` yang mencetak akun/tipe/candle
+  - Kerjakan: implementasi `Broker` di `broker/mt5.py`, normalisasi waktu ke UTC, pemetaan simbol via `symbol_map` + pencarian kandidat (`symbols_get`), reconnect (10 detik, maks 5 kali), skrip `scripts/check_mt5.py` yang mencetak akun/tipe/candle
   - Selesai jika: di Windows, skrip mencetak saldo, tipe akun DEMO, dan 300 candle M15/H1 XAUUSD dan EURUSD; mematikan MT5 memicu status terputus dan reconnect; kontrak tes `Broker` yang sama lolos untuk Mock dan MT5
 
 ## Fase 2 - Alur Inti
@@ -53,22 +53,22 @@ Total pengerjaan ~61 jam (~6 minggu pada ~10 jam/minggu), lalu >= 4 minggu uji d
 
 - [ ] **7. Filter berita**
   - Rujukan: F-02, BSD `news_events`, `settings.news_block_minutes`
-  - Kerjakan: `analysis/news.py` ambil feed kalender (httpx, timeout), simpan upsert, `is_news_blocked(symbol, now)`, pemetaan simbol -> mata uang (XAUUSD: USD; EURUSD: EUR, USD)
+  - Kerjakan: `analysis/news.py` dengan `NewsProvider` yang dapat diganti (default feed Forex Factory mingguan), httpx + timeout, simpan upsert, dukung `manual_blackouts`, `is_news_blocked(symbol, now)`, pemetaan simbol -> mata uang (XAUUSD: USD; EURUSD: EUR, USD)
   - Selesai jika: tes: dalam +-30 menit event high -> blokir; di luar -> lolos; data > 24 jam / fetch gagal -> blokir (`news_block`)
 
 - [ ] **8. Antarmuka AI + adapter Claude**
   - Rujukan: F-03, TRD bagian 1, 4
-  - Kerjakan: `ai/schema.py` (Pydantic: direction, confidence, sl_price, tp_price, rationale), `ai/prompts.py`, `AIProvider` base, `claude.py` dengan output terstruktur dan timeout 30 detik
+  - Kerjakan: `ai/schema.py` (Pydantic: direction, confidence, sl_price, tp_price, rationale), `ai/prompts.py`, `AIProvider` base + registry (penyedia baru tanpa ubah konsensus), `claude.py` dengan output terstruktur, timeout 30 detik, ID model dari konfigurasi
   - Selesai jika: tes dengan klien palsu: balasan valid di-parse; JSON rusak / timeout menghasilkan `AIError` terkontrol; 1 panggilan nyata manual ke Claude mengembalikan opini valid
 
 - [ ] **9. Adapter OpenAI**
   - Rujukan: F-03
-  - Kerjakan: `ai/openai_provider.py` dengan skema, prompt, dan timeout yang sama
+  - Kerjakan: `ai/openai_provider.py` dengan skema, prompt, dan timeout yang sama; ID model dari `OPENAI_MODEL`; kedua penyedia dapat diaktifkan/dinonaktifkan terpisah
   - Selesai jika: tes klien palsu setara langkah 8 lolos; 1 panggilan nyata manual valid
 
 - [ ] **10. Konsensus & penyimpanan sinyal**
   - Rujukan: F-03, BSD `signals`, `ai_opinions`
-  - Kerjakan: panggilan paralel (`asyncio.gather`), `consensus.py` (semua model aktif sama arah, bukan hold, conf >= `min_confidence`, minimal 2 model aktif), simpan `signals` + `ai_opinions`, idempotensi per (`symbol`,`timeframe`,`bar_time`)
+  - Kerjakan: panggilan paralel (`asyncio.gather`), `consensus.py` (semua model aktif sama arah, bukan hold, conf >= `min_confidence`, jumlah model aktif >= `min_ai_models`), simpan `signals` + `ai_opinions`, idempotensi per (`symbol`,`timeframe`,`bar_time`)
   - Selesai jika: tes tabel kebenaran (setuju / beda arah / satu hold / satu error / satu nonaktif) lolos; sinyal yang sama tidak tersimpan dua kali
 
 - [ ] **11. Risk manager: SL/TP & lot**
@@ -78,8 +78,8 @@ Total pengerjaan ~61 jam (~6 minggu pada ~10 jam/minggu), lalu >= 4 minggu uji d
 
 - [ ] **12. Batas harian & kill switch**
   - Rujukan: F-04, BSD `daily_stats`, `risk_events`
-  - Kerjakan: `daily_stats` awal hari UTC, hitung rugi harian (realized + floating), pemicu otomatis, fungsi `trigger_kill_switch(reason)` (tutup semua posisi, set `settings.kill_switch`), reset manual dan otomatis hari berikutnya
-  - Selesai jika: tes MockBroker: rugi mencapai 2% -> semua posisi tertutup, entry berikutnya diblokir, `risk_events` tercatat; reset berfungsi
+  - Kerjakan: `daily_stats` awal hari UTC, hitung rugi harian (realized + floating), pemicu otomatis, fungsi `trigger_kill_switch(reason, mode)` (`protect_winners`: tutup yang rugi, SL ke minimal breakeven untuk yang untung; `close_all`: tutup semua; set `settings.kill_switch`), tombol panic tutup semua, reset manual dan otomatis hari berikutnya
+  - Selesai jika: tes MockBroker: rugi mencapai 2% -> mode `protect_winners`: posisi rugi tertutup, posisi untung tetap hidup dengan SL >= breakeven; mode `close_all`: semua tertutup; entry berikutnya diblokir, `risk_events` tercatat; reset berfungsi
 
 - [ ] **13. Eksekusi order & rekonsiliasi**
   - Rujukan: F-05, BSD `trades`
@@ -113,6 +113,7 @@ Total pengerjaan ~61 jam (~6 minggu pada ~10 jam/minggu), lalu >= 4 minggu uji d
 
 - [ ] **19. S-04 Risiko & Pengaturan + kill switch**
   - Rujukan: F-04, F-06, AFD S-04, BSD `settings`, `/api/settings`, `/api/kill-switch`, TRD bagian 5
+  - Kerjakan tambahan: pilih `symbol_map` dari kandidat MT5, pilih `kill_switch_mode`, atur model AI aktif dan ID model
   - Selesai jika: ubah risiko tersimpan dan berlaku siklus berikutnya; nilai di luar batas ditolak dengan pesan; tanpa token -> 401; coba set `mode=live` -> 403; kill switch dan reset dengan dialog konfirmasi bekerja
 
 - [ ] **20. Statistik jurnal & kelayakan live**
@@ -167,4 +168,5 @@ Total pengerjaan ~61 jam (~6 minggu pada ~10 jam/minggu), lalu >= 4 minggu uji d
 
 ## Catatan & Utang Teknis
 <!-- Tambahkan: tanggal - langkah - catatan/keputusan -->
+- 2026-10-29 - init - Revisi 1: simbol fleksibel (`symbol_map`), `kill_switch_mode`, sumber kalender dijelaskan + provider/manual blackout, `min_ai_models`, ID model dapat diatur.
 - 2026-10-29 - init - Dokumen dibuat. Belum ada kode. Menunggu persetujuan owner sebelum langkah 1.

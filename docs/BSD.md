@@ -36,7 +36,12 @@ Key baku dan default:
 | kill_switch | 0 | 0, 1 |
 | kill_switch_reason | (kosong) | teks |
 | symbols | XAUUSD,EURUSD | daftar dipisah koma |
-| symbol_suffix | (kosong) | teks (mis. `m`) |
+| symbol_map | `{"XAUUSD":"XAUUSD","EURUSD":"EURUSD"}` | JSON; nilai harus ada di MT5 |
+| kill_switch_mode | protect_winners | protect_winners, close_all |
+| min_ai_models | 2 | 1 - 3 (nilai 1 hanya diizinkan saat mode demo) |
+| manual_blackouts | `[]` | JSON daftar `{start_utc, end_utc, note}` |
+| news_provider | faireconomy | nama provider terdaftar |
+| claude_model / openai_model | dari `.env` | teks ID model |
 | risk_per_trade_pct | 0.5 | 0.1 - 2.0 |
 | max_daily_loss_pct | 2.0 | 0.5 - 5.0 |
 | max_open_positions | 2 | 1 - 5 |
@@ -200,7 +205,8 @@ Semua endpoint `GET` tanpa token; `PUT/POST` wajib header `X-Local-Token`.
 | GET | /api/risk-events | `?limit` | 200 `{ items: [risk_event] }` | 400 |
 | GET | /api/settings | - | 200 `{ key: value, ... }` | 500 |
 | PUT | /api/settings | `{ key: value, ... }` (subset) | 200 `{ updated: [keys] }` | 400 (di luar batas), 401, 403 (coba set `mode=live`) |
-| POST | /api/kill-switch | `{ on: bool }` | 200 `{ kill_switch, closed_positions }` | 401 |
+| POST | /api/kill-switch | `{ on: bool, panic?: bool }` | 200 `{ kill_switch, closed_positions, protected_positions }` | 401 |
+| GET | /api/symbols/candidates | `?canonical=XAUUSD` | 200 `{ items: [broker_symbol] }` | 503 (MT5 terputus) |
 | GET | /api/journal | `?period=daily\|weekly` | 200 `{ items: [journal_entry], live_readiness }` | 400 |
 | POST | /api/journal/generate | `{ period, period_start }` | 201 `journal_entry` | 401, 502 (AI gagal) |
 

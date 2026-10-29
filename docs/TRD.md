@@ -55,7 +55,7 @@ src/tradingbot/
   db/                  # models.py, session.py, repo
   broker/              # base.py (Broker), mt5.py, mock.py
   analysis/            # indicators.py, features.py, news.py
-  ai/                  # base.py, claude.py, openai_provider.py, prompts.py, schema.py, consensus.py
+  ai/                  # base.py (AIProvider + registry), claude.py, openai_provider.py, prompts.py, schema.py, consensus.py
   risk/                # sizing.py, validator.py, guard.py (kill switch, limit)
   execution/           # executor.py, position_manager.py, reconcile.py
   journal/             # stats.py, summary.py
@@ -88,7 +88,7 @@ pyproject.toml
   3. Tipe akun MT5 = real (`account_info.trade_mode`) konsisten dengan mode
   4. Default dan fallback selalu `demo`; ketidakcocokan -> bot berhenti dan mencatat `risk_events.type = 'live_guard'`.
 - Data sensitif: API key & token hanya di `.env` (di-gitignore); log disaring dari key.
-- Secrets: lewat environment variable, daftar di `.env.example`: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_MODEL`, `OPENAI_MODEL`, `MT5_PATH` (opsional), `DASHBOARD_TOKEN`, `LIVE_ENABLED`, `DB_PATH`.
+- Secrets: lewat environment variable, daftar di `.env.example`: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_MODEL` (contoh `claude-sonnet-5-5`), `OPENAI_MODEL` (wajib diisi owner), `NEWS_PROVIDER`, `MT5_PATH` (opsional), `DASHBOARD_TOKEN`, `LIVE_ENABLED`, `DB_PATH`.
 
 ## 6. Environment & Deploy
 | Env | Tujuan | Catatan |
@@ -114,8 +114,8 @@ CI/CD: tidak ada untuk MVP; `ruff` dan `pytest` dijalankan lokal.
 
 ## 9. Risiko Teknis
 - `MetaTrader5` hanya Windows -> abstraksi `Broker` + mock; langkah MT5 diuji manual.
-- Feed kalender gratis berubah/mati -> fail-safe blokir entry + log; mudah diganti di `analysis/news.py`.
-- Perbedaan nama simbol/sufiks antarbroker -> pemetaan di pengaturan.
+- Feed kalender gratis (tidak resmi) berubah/mati -> fail-safe blokir entry + log; `NewsProvider` dapat diganti di `analysis/news.py`; jendela blokir manual sebagai cadangan.
+- Perbedaan nama simbol antarbroker -> `symbol_map` + auto-deteksi kandidat dari `symbols_get` MT5.
 - Biaya/latensi API AI -> panggilan hanya saat candle tutup, timeout, hitung biaya di log.
 - Keluaran AI tidak valid -> skema Pydantic ketat; gagal = tidak setuju.
 - Jam/zona waktu server broker berbeda dari UTC -> semua waktu dinormalisasi ke UTC di `broker/mt5.py`.

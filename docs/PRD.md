@@ -45,17 +45,19 @@ Prioritas: P0 = wajib rilis, P1 = sebaiknya ada, P2 = jika sempat.
 **F-01 Koneksi MT5 & data pasar**
 - [ ] Bot terhubung ke terminal MT5 yang sedang berjalan dan membaca saldo, equity, tipe akun (demo/real).
 - [ ] Mengambil >= 300 candle terakhir untuk M15 dan H1 per simbol (XAUUSD, EURUSD).
+- [ ] Nama simbol broker fleksibel: tiap simbol kanonik (`XAUUSD`, `EURUSD`) dipetakan ke nama broker lewat `symbol_map` (mis. `XAUUSDm`, `GOLD`). Saat start, bot mencari kandidat di MT5 dan mengusulkan pemetaan; owner mengonfirmasi/mengubahnya di S-04. Bot menolak start jika simbol belum terpetakan.
 - [ ] Kasus gagal: terminal mati/putus -> coba sambung ulang tiap 10 detik (maks 5 kali), status "terputus" di dashboard, tidak ada order dikirim selama terputus.
 
 **F-02 Analisa teknikal & filter berita**
 - [ ] Menghitung EMA 20/50/200, RSI 14, ATR 14, MACD, serta level swing high/low terakhir, pada M15 dan H1.
-- [ ] Kalender ekonomi high-impact (mata uang terkait simbol; USD untuk XAUUSD) diambil minimal tiap 6 jam dan disimpan.
+- [ ] Kalender ekonomi high-impact (mata uang terkait simbol; USD untuk XAUUSD) diambil minimal tiap 6 jam dan disimpan. Sumber lewat `NewsProvider` yang dapat diganti (default: feed JSON Forex Factory mingguan yang tidak resmi); owner juga bisa menambah jendela blokir manual (`manual_blackouts`) untuk berita penting.
 - [ ] Tidak ada entry baru dari 30 menit sebelum sampai 30 menit sesudah berita high-impact terkait.
 - [ ] Kasus gagal: data kalender lebih tua dari 24 jam atau gagal diambil -> entry diblokir (fail-safe), tercatat di `risk_events`.
 
 **F-03 Panel multi-AI & konsensus**
 - [ ] Setiap candle M15 yang ditutup, untuk tiap simbol, bot mengirim paket fitur pasar ke Claude dan OpenAI secara paralel.
 - [ ] Setiap AI wajib membalas JSON terstruktur: `direction` (buy/sell/hold), `confidence` (0-1), `sl_price`, `tp_price`, `rationale`.
+- [ ] Claude dan OpenAI sama-sama didukung; ID model tiap penyedia dapat diatur (`.env`/pengaturan), dan tiap penyedia dapat diaktifkan/dinonaktifkan. Penyedia baru bisa ditambahkan tanpa mengubah logika konsensus.
 - [ ] Konsensus "eksekusi" hanya jika SEMUA model aktif: arah sama (bukan hold) dan `confidence` >= 0.6.
 - [ ] Kasus gagal: satu model timeout (> 30 detik), error, atau JSON tidak valid -> dihitung tidak setuju, hasil `skip`, error tersimpan.
 - [ ] Setiap sinyal dan tiap opini AI tersimpan lengkap dengan alasan.
@@ -65,8 +67,10 @@ Prioritas: P0 = wajib rilis, P1 = sebaiknya ada, P2 = jika sempat.
 - [ ] Default: risiko 0.5% per trade, maks rugi harian 2%, maks 2 posisi terbuka total, maks 1 posisi per simbol.
 - [ ] SL/TP divalidasi: jarak SL 0.8-3.0 x ATR, rasio reward:risk >= 1.5; di luar itu -> sinyal diblokir.
 - [ ] Blokir entry jika spread > batas per simbol, atau di luar sesi trading (default 07:00-20:00 UTC).
-- [ ] Jika rugi harian (realized + floating, dari balance awal hari) mencapai batas -> kill switch aktif otomatis: semua posisi ditutup, tidak ada entry baru sampai hari berikutnya (UTC) atau direset manual.
-- [ ] Tombol kill switch manual di dashboard menghentikan entry dan menutup semua posisi.
+- [ ] Jika rugi harian (realized + floating, dari balance awal hari) mencapai batas -> kill switch aktif otomatis: tidak ada entry baru sampai hari berikutnya (UTC) atau direset manual. Perlakuan posisi terbuka diatur `kill_switch_mode`:
+  - `protect_winners` (default): posisi rugi ditutup; posisi yang sedang untung tidak ditutup paksa, SL-nya dikunci minimal breakeven, trailing tetap berjalan sampai kena SL/TP.
+  - `close_all`: semua posisi ditutup segera.
+- [ ] Tombol kill switch manual di dashboard memakai `kill_switch_mode` yang sama; tersedia juga tombol terpisah "Tutup semua sekarang" (panic) yang selalu menutup semua posisi.
 
 **F-05 Eksekusi order & manajemen posisi**
 - [ ] Order market dikirim dengan SL dan TP terpasang sejak awal; magic number khusus bot.
@@ -103,11 +107,11 @@ Prioritas: P0 = wajib rilis, P1 = sebaiknya ada, P2 = jika sempat.
 - Aksesibilitas: kontras teks >= 4.5:1, dapat dipakai keyboard.
 
 ## 8. Asumsi, Risiko, Dependensi
-- [ASUMSI] Broker sudah dipilih dan menyediakan simbol bernama persis `XAUUSD` dan `EURUSD` (jika ada sufiks, diatur di pengaturan).
+- [ASUMSI] Broker menyediakan emas dan EURUSD dengan nama apa pun; pemetaan lewat `symbol_map` (F-01).
 - [ASUMSI] Pengguna sudah punya akun demo MT5 dan API key Anthropic + OpenAI.
-- [ASUMSI] Kalender ekonomi memakai feed JSON gratis (mis. Forex Factory mingguan); jika sumber berubah, diganti tanpa mengubah kontrak internal.
+- Kalender ekonomi: default feed JSON mingguan Forex Factory (`nfs.faireconomy.media`), gratis tetapi **tidak resmi**, tanpa jaminan layanan, hanya minggu berjalan. Bisa mati/berubah tanpa pemberitahuan; karena itu ada fail-safe, provider yang dapat diganti, dan jendela blokir manual. Belum diverifikasi dari lingkungan pengembangan ini (jaringan diblokir); diuji di langkah 7.
 - [ASUMSI] Model dipanggil hanya saat candle M15 ditutup (bukan tiap tick) untuk mengendalikan biaya API; estimasi <= 400 panggilan/hari.
-- [ASUMSI] Kill switch harian menutup semua posisi (bukan hanya memblokir entry).
+- Kill switch: lihat F-04 (`protect_winners` default, `close_all` opsional).
 - [ASUMSI] Jika beberapa model memberi SL/TP berbeda: SL dipilih yang terjauh (valid), TP yang terdekat.
 - [ASUMSI] Kriteria kelayakan live: >= 30 trade, profit factor >= 1.3, max drawdown <= 10%, 0 pelanggaran batas risiko, >= 4 minggu.
 - Risiko: AI keliru atau halusinasi -> mitigasi: konsensus bulat, validasi SL/TP deterministik, batas risiko di luar AI.
@@ -116,6 +120,6 @@ Prioritas: P0 = wajib rilis, P1 = sebaiknya ada, P2 = jika sempat.
 - Dependensi: terminal MT5 + paket Python `MetaTrader5` (hanya Windows), API Anthropic, API OpenAI, feed kalender ekonomi.
 
 ## 9. Pertanyaan Terbuka
-- Nama broker dan sufiks simbol (mis. `XAUUSDm`)?
+- Nama broker (pemetaan simbol diatur fleksibel, lihat F-01).
 - Mata uang dan ukuran saldo akun demo (memengaruhi lot minimum)?
-- Model spesifik Claude/OpenAI yang ingin dipakai (default diatur di TRD, dapat diganti di pengaturan)?
+- ID model OpenAI yang akan dipakai (wajib diisi owner di `.env`; default Claude: `claude-sonnet-5-5`).
