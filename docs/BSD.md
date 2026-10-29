@@ -8,11 +8,13 @@
 erDiagram
   signals ||--o{ ai_opinions : "dinilai oleh"
   signals ||--o| trades : "menghasilkan"
+  trades ||--o{ ai_reflections : "dievaluasi"
+  ai_reflections ||--o{ ai_lessons : "mengusulkan"
 ```
-Tabel mandiri tanpa FK: `settings`, `news_events`, `risk_events`, `daily_stats`, `journal_entries` (journal merujuk `daily_stats` hanya lewat tanggal logis).
+Tabel mandiri tanpa FK: `settings`, `news_events`, `prompt_versions`, `risk_events`, `daily_stats`, `journal_entries` (journal merujuk `daily_stats` hanya lewat tanggal logis).
 
 ## 2. Konvensi
-- Nama tabel: `snake_case` jamak; PK: `id` integer autoincrement (kecuali `settings` dan `daily_stats`).
+- Nama tabel: `snake_case` jamak; PK: `id` integer autoincrement (kecuali `settings`, `daily_stats`, dan `prompt_versions`).
 - Kolom standar: `created_at` (UTC, default now); `updated_at` pada tabel yang dapat berubah.
 - Semua waktu disimpan UTC.
 - Soft delete: tidak dipakai (riwayat trading tidak dihapus).
@@ -40,6 +42,8 @@ Key baku dan default:
 | breakeven_buffer_points | 0 (tambahan di luar komisi; spread tidak dihitung) | 0 - 200 |
 | kill_switch_mode | protect_winners | protect_winners, close_all |
 | min_ai_models | 2 | 2 - jumlah model `enabled` di `ai_models` |
+| max_ai_models | 4 | 2 - 6; total model `enabled` tidak boleh melebihi |
+| require_provider_diversity | 1 | 0, 1 (1 = minimal satu model aktif dari tiap penyedia) |
 | manual_blackouts | `[]` | JSON daftar `{start_utc, end_utc, note}` |
 | news_provider | faireconomy | nama provider terdaftar |
 | ai_models | `[{"provider":"claude","model":ANTHROPIC_MODEL,"enabled":true},{"provider":"openai","model":OPENAI_MODEL,"enabled":true}]` (nilai model dari `.env` saat seed) | JSON daftar `{provider, model, enabled}`; provider terdaftar di registry; pasangan provider+model unik |
@@ -53,10 +57,25 @@ Key baku dan default:
 | max_spread_points_XAUUSD / _EURUSD | 50 / 20 | > 0 |
 | session_start_utc / session_end_utc | 07:00 / 20:00 | HH:MM |
 | news_block_minutes | 30 | 10 - 120 |
+| max_consecutive_losses | 3 | 1 - 10 |
+| loss_pause_hours | 4 | 1 - 48 |
+| max_entries_per_day | 4 | 1 - 20 |
+| max_weekly_loss_pct | 4.0 | 1.0 - 10.0 |
+| volatility_atr_multiple | 3.0 | 1.5 - 10.0 |
+| friday_cutoff_utc | 18:00 | HH:MM |
+| lessons_enabled | 1 | 0, 1 |
+| lessons_frozen | 0 | 0, 1 |
+| lesson_min_trades | 20 | 10 - 200 |
+| lesson_max_active | 10 | 1 - 20 (per model) |
+| lesson_expiry_weeks | 4 | 1 - 12 |
+| rollback_min_trades | 15 | 5 - 100 |
+| lesson_review_utc | SAT 00:00 | hari + HH:MM UTC, saat pasar tutup |
 
 Aturan validasi lintas key (dilanggar -> ditolak 400):
 - `risk_per_trade_pct` x `max_open_positions` <= `max_daily_loss_pct`.
-- 2 <= `min_ai_models` <= jumlah model `enabled` di `ai_models`.
+- 2 <= `min_ai_models` <= jumlah model `enabled` di `ai_models` <= `max_ai_models`.
+- Jika `require_provider_diversity` = 1: minimal satu model `enabled` per penyedia (`claude`, `openai`).
+- `max_weekly_loss_pct` >= `max_daily_loss_pct`.
 - `symbol_map` tidak bisa diubah untuk simbol yang punya posisi terbuka (409).
 
 ### news_events
@@ -102,7 +121,9 @@ Fitur: F-03
 | signal_id | INTEGER | FK -> signals.id, NOT NULL | |
 | provider | TEXT | NOT NULL | Nama di registry, mis. `claude`, `openai` (tanpa CHECK agar bisa ditambah) |
 | model | TEXT | NOT NULL | ID model yang dipakai |
-| direction | TEXT | NULL, CHECK in ('buy','sell','hold') | NULL jika error |
+| direction | TEXT | NULL, CHECK in ('buy','sell','hold') | Arah final setelah efek pelajaran; NULL jika error |
+| raw_direction | TEXT | NULL, CHECK in ('buy','sell','hold') | Arah asli dari model sebelum efek pelajaran |
+| lessons_applied | TEXT | NULL | JSON daftar `ai_lessons.id` yang efeknya diterapkan |
 | confidence | REAL | NULL, CHECK 0..1 | |
 | sl_price | REAL | NULL | |
 | tp_price | REAL | NULL | |
@@ -186,6 +207,61 @@ Fitur: F-07
 
 Indeks: UNIQUE(`period`, `period_start`).
 
+### ai_reflections
+Fitur: F-08
+| Kolom | Tipe | Constraint | Keterangan |
+|---|---|---|---|
+| id | INTEGER | PK | |
+| trade_id | INTEGER | FK -> trades.id, NOT NULL | |
+| provider | TEXT | NOT NULL | |
+| model | TEXT | NOT NULL | |
+| prompt_version | TEXT | NOT NULL | Versi saat keputusan dibuat |
+| reflection | TEXT | NULL | Evaluasi model atas keputusannya sendiri |
+| error | TEXT | NULL | Terisi jika refleksi gagal |
+| created_at | DATETIME | NOT NULL | |
+
+Indeks: UNIQUE(`trade_id`, `provider`, `model`).
+
+### ai_lessons
+Fitur: F-08
+| Kolom | Tipe | Constraint | Keterangan |
+|---|---|---|---|
+| id | INTEGER | PK | |
+| provider | TEXT | NOT NULL | Pemilik pelajaran |
+| model | TEXT | NOT NULL | Pemilik pelajaran |
+| symbol | TEXT | NULL | Simbol kanonik; NULL = semua |
+| direction | TEXT | NULL, CHECK in ('buy','sell') | NULL = kedua arah |
+| condition_json | TEXT | NOT NULL | Kondisi atas kunci `features_json` |
+| effect | TEXT | NOT NULL, CHECK in ('avoid','raise_confidence') | Hanya memperketat |
+| effect_value | REAL | NULL, CHECK 0..1 | Untuk `raise_confidence`; harus > `min_confidence` |
+| text | TEXT | NOT NULL | Kalimat pelajaran untuk prompt |
+| evidence_json | TEXT | NOT NULL | Statistik dihitung kode (jumlah trade, win rate, PF pada kondisi) |
+| status | TEXT | NOT NULL, CHECK in ('pending','active','rejected','disabled','expired','rolled_back') | |
+| source_reflection_id | INTEGER | FK -> ai_reflections.id, NULL | |
+| review_note | TEXT | NULL | Alasan penentang |
+| reviewed_by | TEXT | NULL | `provider/model` penentang |
+| proposed_at | DATETIME | NOT NULL | |
+| activated_at | DATETIME | NULL | |
+| expires_at | DATETIME | NULL | |
+| updated_at | DATETIME | NOT NULL | |
+
+Indeks: INDEX(`provider`, `model`, `status`).
+
+### prompt_versions
+Fitur: F-03, F-08
+| Kolom | Tipe | Constraint | Keterangan |
+|---|---|---|---|
+| version | TEXT | PK | mis. `v1`, `v1-w2026-45` |
+| base_prompt | TEXT | NOT NULL | Versi prompt dasar di `ai/prompts.py` |
+| lesson_ids_json | TEXT | NOT NULL | Daftar `ai_lessons.id` aktif di versi ini |
+| previous_version | TEXT | NULL | Untuk rollback |
+| week_start | DATE | NULL, UNIQUE | Senin berlakunya (idempotensi mingguan) |
+| status | TEXT | NOT NULL, CHECK in ('active','retired','rolled_back') | Tepat satu `active` |
+| activated_at | DATETIME | NOT NULL | |
+| retired_at | DATETIME | NULL | |
+
+`signals.prompt_version` dan `ai_reflections.prompt_version` merujuk `prompt_versions.version` (logis, tanpa FK).
+
 ## 4. Enum & Nilai Referensi
 | Enum | Nilai | Arti |
 |---|---|---|
@@ -193,7 +269,7 @@ Indeks: UNIQUE(`period`, `period_start`).
 | ai direction | buy, sell, hold | Saran AI |
 | signals.decision | execute, skip, blocked | Dieksekusi / tidak ada konsensus / diblokir aturan |
 | trades.status | open -> closed; rejected (final) | Transisi: open->closed saja |
-| risk_event_type | daily_loss_limit, kill_switch_on, kill_switch_off, max_positions, spread_too_wide, news_block, outside_session, invalid_sltp, lot_too_small, insufficient_ai_models, sltp_unplaceable, market_closed, broker_error, ai_error, live_guard | Jenis peristiwa risiko |
+| risk_event_type | daily_loss_limit, kill_switch_on, kill_switch_off, max_positions, spread_too_wide, news_block, outside_session, invalid_sltp, lot_too_small, insufficient_ai_models, sltp_unplaceable, market_closed, consecutive_losses, max_entries_day, weekly_loss_limit, volatility_shock, friday_cutoff, broker_error, ai_error, live_guard | Jenis peristiwa risiko |
 
 ## 5. Aturan Akses (otorisasi data)
 Satu peran (owner), hanya dari `127.0.0.1`.
@@ -205,6 +281,7 @@ Satu peran (owner), hanya dari `127.0.0.1`.
 | trades | ya | tidak (penutupan lewat kill switch) | ya |
 | risk_events, daily_stats | ya | tidak | ya |
 | journal_entries | ya | ya (POST /api/journal/generate) | ya |
+| ai_reflections, ai_lessons, prompt_versions | ya | tidak (kontrol hanya lewat `lessons_enabled`/`lessons_frozen` di settings) | ya |
 
 `mode` tidak bisa diubah ke `live` lewat API; hanya lewat penjaga di TRD bagian 5 (perubahan manual `.env` + settings).
 
@@ -223,12 +300,14 @@ Semua request dengan header `Host` asing -> 400. Endpoint `GET` tanpa token; `PU
 | GET | /api/symbols/candidates | `?canonical=XAUUSD` | 200 `{ items: [broker_symbol] }` | 503 (MT5 terputus) |
 | GET | /api/journal | `?period=daily\|weekly` | 200 `{ items: [journal_entry], live_readiness }` | 400 |
 | POST | /api/journal/generate | `{ period, period_start }` | 201 `journal_entry` | 401, 502 (AI gagal) |
+| GET | /api/lessons | `?provider&model&status` | 200 `{ items: [lesson] }` | 400 |
+| GET | /api/prompt-versions | - | 200 `{ items: [prompt_version] }` | 500 |
 
 Format error standar: `{ "error": { "code": "...", "message": "..." } }`
 
 ## 7. Migrasi & Seed
-- Urutan migrasi: `settings` -> `news_events` -> `signals` -> `ai_opinions` -> `trades` -> `risk_events` -> `daily_stats` -> `journal_entries`.
-- Seed: baris `settings` dengan nilai default di atas (dibuat saat start jika belum ada). Data contoh dev: sinyal/trade palsu hanya untuk tes, tidak untuk produksi.
+- Urutan migrasi: `settings` -> `news_events` -> `signals` -> `ai_opinions` -> `trades` -> `risk_events` -> `daily_stats` -> `journal_entries` -> `ai_reflections` -> `ai_lessons` -> `prompt_versions`.
+- Seed: baris `settings` dengan nilai default di atas, dan `prompt_versions` `v1` (tanpa pelajaran, `active`), dibuat saat start jika belum ada. Data contoh dev: sinyal/trade palsu hanya untuk tes, tidak untuk produksi.
 
 ## 8. Kebijakan Data
 - Retensi: semua data disimpan tanpa batas (ukuran kecil); `features_json` boleh dibersihkan > 90 hari.

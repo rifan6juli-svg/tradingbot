@@ -11,11 +11,11 @@ Langkah bertanda **[Windows]** harus diuji manual di PC Windows dengan MT5 akun 
 | Fase | Tujuan | Langkah | Estimasi |
 |---|---|---|---|
 | 1 | Fondasi | 1-5b | ~16 jam (1.5 minggu) |
-| 2 | Alur inti (analisa, AI, risiko, eksekusi) | 6-15 | ~31 jam (3 minggu) |
-| 3 | Dashboard & jurnal | 16-21 | ~14 jam (1.5 minggu) |
+| 2 | Alur inti (analisa, AI, risiko, eksekusi) | 6-15 | ~34 jam (3.5 minggu) |
+| 3 | Dashboard, jurnal & pelajaran AI | 16-21e | ~27 jam (2.5-3 minggu) |
 | 4 | Polesan, hardening, uji demo | 22-26 | ~10 jam + 4 minggu uji demo berjalan |
 
-Total pengerjaan ~71 jam (~7 minggu pada ~10 jam/minggu), lalu >= 4 minggu uji demo.
+Total pengerjaan ~87 jam (~9 minggu pada ~10 jam/minggu), lalu >= 4 minggu uji demo.
 
 ## Fase 1 - Fondasi
 
@@ -26,13 +26,13 @@ Total pengerjaan ~71 jam (~7 minggu pada ~10 jam/minggu), lalu >= 4 minggu uji d
 
 - [ ] **2. Database & skema**
   - Rujukan: BSD bagian 2-4, 7
-  - Kerjakan: model SQLAlchemy + migrasi Alembic untuk semua tabel BSD, seed `settings` default (termasuk `ai_models` dari `.env`), helper sesi
+  - Kerjakan: model SQLAlchemy + migrasi Alembic untuk semua tabel BSD, seed `settings` default (termasuk `ai_models` dari `.env`) dan `prompt_versions` `v1`, helper sesi
   - Selesai jika: migrasi berjalan dari nol; seed terisi; tes skema (constraint CHECK/UNIQUE) lolos
 
 - [ ] **3. Config & penjaga mode**
   - Rujukan: TRD bagian 5, F-05 (kriteria mode live), BSD `settings` (termasuk aturan validasi lintas key)
   - Kerjakan: loader `.env` + `settings` dengan validasi batas per key dan lintas key (Pydantic), fungsi `check_live_guard(account_type)`, default paksa `demo`
-  - Selesai jika: tes membuktikan: mode `live` ditolak tanpa `LIVE_ENABLED=true`; ditolak jika tipe akun tidak cocok; nilai di luar batas ditolak; `risk_per_trade_pct` x `max_open_positions` > `max_daily_loss_pct` ditolak; `min_ai_models` < 2 atau > jumlah model aktif ditolak
+  - Selesai jika: tes membuktikan: mode `live` ditolak tanpa `LIVE_ENABLED=true`; ditolak jika tipe akun tidak cocok; nilai di luar batas ditolak; `risk_per_trade_pct` x `max_open_positions` > `max_daily_loss_pct` ditolak; `min_ai_models` < 2 atau > jumlah model aktif ditolak; model aktif > `max_ai_models` ditolak; tanpa model dari salah satu penyedia saat `require_provider_diversity` = 1 ditolak; `max_weekly_loss_pct` < `max_daily_loss_pct` ditolak
 
 - [ ] **4. Broker interface & MockBroker**
   - Rujukan: F-01, TRD bagian 2-3, 5a
@@ -73,8 +73,8 @@ Total pengerjaan ~71 jam (~7 minggu pada ~10 jam/minggu), lalu >= 4 minggu uji d
 
 - [ ] **10. Konsensus & penyimpanan sinyal**
   - Rujukan: F-03, BSD `signals`, `ai_opinions`
-  - Kerjakan: panggilan paralel (`asyncio.gather`) ke semua model `enabled` di `ai_models`, `consensus.py` (semua model aktif sama arah, bukan hold, conf >= `min_confidence`, jumlah model aktif >= `min_ai_models`, kurang -> `blocked` `insufficient_ai_models` tanpa memanggil AI), simpan `signals` (simbol kanonik, `prompt_version`) + `ai_opinions`, idempotensi per (`symbol`,`timeframe`,`bar_time`)
-  - Selesai jika: tes tabel kebenaran (setuju / beda arah / satu hold / satu error / SL sisi salah / satu nonaktif / dua model satu penyedia) lolos; sinyal yang sama tidak tersimpan dua kali
+  - Kerjakan: panggilan paralel (`asyncio.gather`) ke semua model `enabled` di `ai_models`, `consensus.py` (semua model aktif sama arah, bukan hold, conf >= `min_confidence`, jumlah model aktif >= `min_ai_models`, diversitas penyedia bila wajib, kurang -> `blocked` `insufficient_ai_models` tanpa memanggil AI), simpan `signals` (simbol kanonik, `prompt_version`) + `ai_opinions`, idempotensi per (`symbol`,`timeframe`,`bar_time`)
+  - Selesai jika: tes tabel kebenaran (setuju / beda arah / satu hold / satu error / SL sisi salah / satu nonaktif / dua model satu penyedia / tanpa model OpenAI saat diversitas wajib) lolos; sinyal yang sama tidak tersimpan dua kali
 
 - [ ] **11a. Validasi SL/TP & guard entry**
   - Rujukan: F-04, BSD `settings`
@@ -85,6 +85,11 @@ Total pengerjaan ~71 jam (~7 minggu pada ~10 jam/minggu), lalu >= 4 minggu uji d
   - Rujukan: F-04, TRD bagian 5a
   - Kerjakan: lot dengan rumus PRD F-04 (`tick_size`, `tick_value_loss`, 2 x `commission_per_lot`, bulat ke bawah ke `volume_step`, batas `volume_max`), fungsi validasi ulang (spread, SL/TP, lot) dengan bid/ask terbaru
   - Selesai jika: tes: lot benar untuk XAUUSD dan EURUSD (contoh tetap, termasuk kontrak 100 oz) dan risiko aktual tidak pernah > target; lot < `volume_min` -> `lot_too_small`; harga terbaru melewati SL -> `invalid_sltp`; spread melebar saat validasi ulang -> `spread_too_wide`
+
+- [ ] **11c. Rem tambahan**
+  - Rujukan: F-04 (rem tambahan), BSD `settings`, `daily_stats`, `trades`
+  - Kerjakan: guard kalah beruntun + jeda, maks entry harian, rugi mingguan (dari balance Senin 00:00 UTC), lonjakan volatilitas (ATR M15 vs median 20 hari), cutoff Jumat
+  - Selesai jika: tes: 3 kalah beruntun -> `consecutive_losses` selama 4 jam lalu lolos; entry ke-5 dalam sehari -> `max_entries_day`; rugi mingguan 4% -> `weekly_loss_limit` sampai Senin; ATR 3.5x median -> `volatility_shock`; Jumat 18:01 UTC -> `friday_cutoff`, Senin saat pasar buka -> lolos
 
 - [ ] **12a. Batas rugi harian & kill switch dasar**
   - Rujukan: F-04, BSD `daily_stats`, `risk_events`, `settings.kill_switch*`
@@ -128,18 +133,42 @@ Total pengerjaan ~71 jam (~7 minggu pada ~10 jam/minggu), lalu >= 4 minggu uji d
 
 - [ ] **19. S-04 Risiko & Pengaturan + kill switch**
   - Rujukan: F-04, F-06, AFD S-04, DBD S-04, BSD `settings`, `/api/settings`, `/api/kill-switch`, `/api/symbols/candidates`, TRD bagian 5
-  - Kerjakan: form pengaturan risiko, pilih `symbol_map` dari kandidat MT5, pilih `kill_switch_mode`, editor `ai_models` (tambah/aktif/nonaktif), input `breakeven_buffer_points` dan `commission_per_lot`, tombol kill switch, reset, dan "Tutup semua sekarang" dengan dialog konfirmasi
+  - Kerjakan: form pengaturan risiko, pilih `symbol_map` dari kandidat MT5, pilih `kill_switch_mode`, editor `ai_models` (beberapa model per penyedia, tambah/aktif/nonaktif), toggle `lessons_enabled`/`lessons_frozen`, pengaturan rem tambahan, input `breakeven_buffer_points` dan `commission_per_lot`, tombol kill switch, reset, dan "Tutup semua sekarang" dengan dialog konfirmasi
   - Selesai jika: ubah risiko tersimpan dan berlaku siklus berikutnya; nilai di luar batas atau melanggar aturan lintas key ditolak dengan pesan; ubah `symbol_map` saat ada posisi terbuka -> 409; tanpa token -> 401; coba ubah `mode`/`kill_switch` lewat PUT -> 403; kill switch, reset, dan panic bekerja dengan dialog konfirmasi
 
 - [ ] **20. Statistik jurnal & kelayakan live**
   - Rujukan: F-07, PRD bagian 3 (definisi), BSD `daily_stats`, `journal_entries`
-  - Kerjakan: `journal/stats.py` (jumlah trade, win rate, profit factor, net profit, max drawdown sesuai definisi PRD), simpan harian/mingguan, fungsi `live_readiness()` terhadap kriteria PRD bagian 3 (hanya trade `account_mode = demo`)
+  - Kerjakan: `journal/stats.py` (jumlah trade, win rate, profit factor, net profit, max drawdown sesuai definisi PRD), simpan harian/mingguan, fungsi `live_readiness()` terhadap kriteria PRD bagian 3 (hanya trade `account_mode = demo`, dan `prompt_version` terakhir stabil >= 2 minggu)
   - Selesai jika: tes dengan set trade tetap menghasilkan angka acuan; `live_readiness` benar untuk kasus lolos dan gagal; rugi akibat gap tidak dihitung sebagai pelanggaran
 
 - [ ] **21. Ringkasan AI & S-05 Jurnal**
   - Rujukan: F-07, AFD S-05, BSD `/api/journal`, TRD bagian 5b
   - Kerjakan: ringkasan memakai model aktif pertama di `ai_models`
   - Selesai jika: ringkasan tersimpan dan tampil; AI gagal -> statistik tetap tampil dengan tombol coba lagi; S-05 menampilkan progres kriteria live
+
+- [ ] **21a. Refleksi pasca-trade**
+  - Rujukan: F-08, BSD `ai_reflections`, TRD 5b
+  - Kerjakan: `learning/reflection.py`: saat trade `closed`, minta tiap model yang ikut memutuskan menulis refleksi; simpan; gagal -> `error` terisi
+  - Selesai jika: tes AI palsu: trade tertutup menghasilkan satu refleksi per model; error tidak menghentikan rekonsiliasi; tidak ada refleksi ganda
+
+- [ ] **21b. Usulan pelajaran & verifikasi kode**
+  - Rujukan: F-08, BSD `ai_lessons`
+  - Kerjakan: skema usulan terstruktur, validator (kunci fitur dikenal, hanya memperketat, `effect_value` > `min_confidence`), penghitung statistik kondisi dari `signals`/`trades`, status `pending` bila >= `lesson_min_trades`
+  - Selesai jika: tes: usulan melonggarkan ditolak; kunci tidak dikenal ditolak; statistik benar pada data tetap; < 20 trade tidak menjadi pending
+
+- [ ] **21c. Penerapan pelajaran & versi prompt**
+  - Rujukan: F-03, F-08, BSD `prompt_versions`, `ai_opinions.raw_direction`/`lessons_applied`
+  - Kerjakan: evaluator kondisi, efek `avoid`/`raise_confidence` pada opini model pemilik sebelum konsensus, teks pelajaran di prompt model pemilik, `prompt_versions` aktif, `lessons_enabled` = 0 -> prompt dasar
+  - Selesai jika: tes: kondisi cocok -> opini model pemilik jadi hold (`avoid`) atau tidak setuju bila confidence < nilai (`raise_confidence`); model lain tidak terpengaruh; `raw_direction` dan `lessons_applied` tercatat; mematikan pelajaran langsung kembali ke prompt dasar
+
+- [ ] **21d. Penentang mingguan, kedaluwarsa & rollback**
+  - Rujukan: F-08, TRD 5b
+  - Kerjakan: job `lesson_review_utc` (idempotensi per minggu): verifikasi ulang, kedaluwarsa, penentang silang penyedia, aktivasi (maks per model), versi baru berlaku Senin, rollback setelah `rollback_min_trades` bila PF memburuk, `lessons_frozen` hanya mencatat
+  - Selesai jika: tes jam palsu: penentang `reject` -> pending `rejected` / aktif `disabled`; penentang error -> tidak ada perubahan; versi baru dibuat paling banyak sekali per minggu; PF memburuk setelah 15 trade -> `rolled_back` dan versi sebelumnya aktif; frozen -> status tidak berubah
+
+- [ ] **21e. UI pelajaran (S-05) & pengaturan (S-04)**
+  - Rujukan: F-08, AFD S-04/S-05, DBD S-04/S-05, BSD `/api/lessons`, `/api/prompt-versions`
+  - Selesai jika: S-05 menampilkan pelajaran per model dengan status, kondisi, efek, bukti, dan catatan penentang; riwayat versi prompt tampil; toggle di S-04 berlaku pada siklus berikutnya
 
 ## Fase 4 - Polesan, Hardening & Uji Demo
 
@@ -163,7 +192,8 @@ Total pengerjaan ~71 jam (~7 minggu pada ~10 jam/minggu), lalu >= 4 minggu uji d
 
 - [ ] **26. Uji demo >= 4 minggu & evaluasi**
   - Rujukan: PRD bagian 3, F-07
-  - Selesai jika: S-05 menunjukkan >= 4 minggu, >= 30 trade, profit factor >= 1.3, max drawdown <= 10%, 0 pelanggaran batas risiko. **Keputusan beralih ke live ada di owner, di luar IPD ini.**
+  - Kerjakan: aktifkan `lessons_frozen` minimal 2 minggu sebelum akhir uji
+  - Selesai jika: `prompt_version` terakhir berlaku >= 2 minggu tanpa perubahan; S-05 menunjukkan >= 4 minggu, >= 30 trade, profit factor >= 1.3, max drawdown <= 10%, 0 pelanggaran batas risiko. **Keputusan beralih ke live ada di owner, di luar IPD ini.**
 
 ## Definition of Done (berlaku untuk tiap langkah)
 - [ ] Sesuai spesifikasi di dokumen yang dirujuk
@@ -181,10 +211,12 @@ Total pengerjaan ~71 jam (~7 minggu pada ~10 jam/minggu), lalu >= 4 minggu uji d
 | Gap akhir pekan/rollover melewati SL | Rugi > target per trade | Diterima owner; risiko kecil per trade, maks 2 posisi |
 | Feed kalender mati | Entry diblokir terus | Fail-safe disengaja; provider dapat diganti; blackout manual |
 | Biaya API membengkak | Biaya tak terduga | Panggil saat candle tutup setelah guard, idempotensi per candle, log jumlah panggilan |
+| Pelajaran otomatis overfitting | Bot memburuk diam-diam | Hanya memperketat, verifikasi kode, per model, penentang mingguan, rollback, pembekuan |
 | Sesi kerja terputus di tengah langkah | Status campur | Satu langkah satu commit; centang hanya setelah lolos |
 
 ## Catatan & Utang Teknis
 <!-- Tambahkan: tanggal - langkah - catatan/keputusan -->
+- 2026-10-29 - update - Revisi 4: strategi diskresi penuh AI (keputusan owner); F-08 pelajaran AI otomatis (refleksi, usulan terstruktur, verifikasi kode, per model, kedaluwarsa, penentang mingguan silang penyedia Sabtu 00:00 UTC, rollback, pembekuan); rem tambahan F-04 (kalah beruntun, entry harian, rugi mingguan, volatilitas, cutoff Jumat); beberapa model per penyedia (`max_ai_models`, `require_provider_diversity`). Tabel baru `ai_reflections`, `ai_lessons`, `prompt_versions`. Langkah baru 11c, 21a-21e; estimasi ~87 jam.
 - 2026-10-29 - init - Revisi 3 (audit kedua): buffer breakeven tanpa spread + konversi komisi, komisi pulang-pergi di rumus lot, `tick_value_loss`, aturan lintas key risiko, 1 posisi per simbol dikunci, `ai_models` menggantikan key model/aktif per penyedia, akun khusus bot (posisi tanpa magic diabaikan), validasi sisi SL/TP AI, simbol kanonik + `broker_symbol`, definisi rugi harian/max drawdown/pelanggaran, cek cakupan kalender, `market_closed`, validasi ulang spread dan sebelum retry. Langkah 5, 11, 12 dipecah (a/b); estimasi ~71 jam.
 - 2026-10-29 - init - Revisi 2 (audit): rumus lot lengkap + bulat ke bawah, validasi ulang harga sebelum order, SL tidak valid -> tutup, reconnect tanpa batas, cek Algo Trading/hedging/filling, `stops_level`, hapus `symbols`, `settings` menang atas `.env`, provider AI tanpa CHECK, `min_ai_models` minimal 2, anti DNS rebinding + token di halaman, `prompt_version`, aturan `close_reason`. Keputusan owner: posisi melewati akhir pekan hanya dengan SL; korelasi USD hanya dicatat.
 - 2026-10-29 - utang - Belum ada cara resmi mengubah `mode` ke `live` (API menolak). Saat live disetujui, buat perintah CLI terpisah yang menjalankan penjaga TRD 5. Di luar scope MVP.

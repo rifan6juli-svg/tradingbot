@@ -3,7 +3,9 @@
 > Versi: 0.1 | Diperbarui: 2026-10-29 | Status: Draft (menunggu persetujuan)
 
 ## 1. Ringkasan
-Bot trading otomatis untuk Windows yang terhubung ke MetaTrader 5. Beberapa model AI (Claude dan OpenAI) menganalisa data pasar XAUUSD dan EURUSD, dan order hanya dieksekusi jika **semua** model setuju arah yang sama serta lolos batas risiko. Pengguna memantau dan mengontrol bot lewat dashboard web lokal. Tahap awal: **akun demo saja**.
+Bot trading otomatis untuk Windows yang terhubung ke MetaTrader 5. Beberapa model AI (satu atau lebih model Claude dan satu atau lebih model OpenAI) menganalisa data pasar XAUUSD dan EURUSD, dan order hanya dieksekusi jika **semua** model setuju arah yang sama serta lolos batas risiko. Pengguna memantau dan mengontrol bot lewat dashboard web lokal. Tahap awal: **akun demo saja**.
+
+**Strategi:** diskresi penuh AI (keputusan owner). Tidak ada aturan setup entry di kode; setiap model menilai sendiri paket fitur pasar. Kode hanya menyaring kondisi (guard dan rem), memvalidasi SL/TP, menghitung lot, dan mengelola posisi dengan aturan tetap. Setiap model belajar dari hasil keputusannya sendiri lewat pelajaran terstruktur yang diterapkan otomatis dengan pengaman (F-08).
 
 ## 2. Masalah
 - Masalah: analisa manual lambat, emosional, dan tidak konsisten; satu AI saja bisa salah atau berhalusinasi.
@@ -24,6 +26,7 @@ Bot trading otomatis untuk Windows yang terhubung ke MetaTrader 5. Beberapa mode
 Definisi:
 - Max drawdown: penurunan terbesar dari puncak ke lembah pada kurva balance (trade tertutup) sejak uji demo dimulai, dalam % dari puncak.
 - Pelanggaran batas risiko: tindakan bot yang melanggar aturan (lot melebihi target risiko, posisi melebihi batas, entry saat kill switch/guard aktif). Rugi melebihi SL karena gap pasar atau slippage (risiko yang diterima owner) dicatat terpisah, bukan pelanggaran.
+- Kriteria layak live hanya dinilai jika `prompt_version` terakhir sudah berlaku >= 2 minggu tanpa perubahan (pelajaran dibekukan).
 
 ## 4. Pengguna
 | Peran | Deskripsi | Kebutuhan utama |
@@ -44,6 +47,7 @@ Prioritas: P0 = wajib rilis, P1 = sebaiknya ada, P2 = jika sempat.
 | F-05 | Eksekusi order & manajemen posisi | P0 | Sebagai trader, saya ingin order terkirim ke MT5 dengan SL/TP dan posisi dikelola (breakeven/trailing), agar bot benar-benar bekerja otomatis |
 | F-06 | Dashboard web lokal | P0 | Sebagai trader, saya ingin melihat status, sinyal, posisi, dan mengubah pengaturan dari browser |
 | F-07 | Jurnal & evaluasi performa | P1 | Sebagai trader, saya ingin statistik dan ringkasan AI harian/mingguan, agar bisa menilai kelayakan bot |
+| F-08 | Evaluasi & pelajaran AI | P1 | Sebagai trader, saya ingin tiap AI mengevaluasi keputusannya sendiri dan menerapkan pelajaran secara otomatis dengan pengaman, agar kualitas keputusan membaik tanpa menaikkan risiko |
 
 ### Acceptance Criteria
 **F-01 Koneksi MT5 & data pasar**
@@ -63,9 +67,10 @@ Prioritas: P0 = wajib rilis, P1 = sebaiknya ada, P2 = jika sempat.
 **F-03 Panel multi-AI & konsensus**
 - [ ] Setiap candle M15 yang ditutup, untuk tiap simbol yang lolos guard F-04, bot mengirim paket fitur pasar (termasuk batas `sl_atr_min`/`sl_atr_max` dan `min_rr`) ke semua model aktif secara paralel.
 - [ ] Setiap AI wajib membalas JSON terstruktur: `direction` (buy/sell/hold), `confidence` (0-1), `sl_price`, `tp_price`, `rationale`. `sl_price`/`tp_price` wajib untuk buy/sell dan boleh kosong untuk hold. SL/TP di sisi yang salah (mis. SL di atas harga untuk buy) -> opini tidak valid (dihitung tidak setuju).
-- [ ] Claude dan OpenAI sama-sama didukung. Daftar model diatur di `ai_models` (penyedia, ID model, aktif/nonaktif), boleh lebih dari satu model per penyedia. Penyedia baru bisa ditambahkan tanpa mengubah logika konsensus.
+- [ ] Claude dan OpenAI sama-sama didukung. Daftar model diatur di `ai_models` (penyedia, ID model, aktif/nonaktif), boleh lebih dari satu model per penyedia. Total model aktif maks `max_ai_models` (default 4). Jika `require_provider_diversity` = 1 (default), minimal satu model aktif dari tiap penyedia (Claude dan OpenAI), agar konsensus tidak hanya dari satu keluarga model. Penyedia baru bisa ditambahkan tanpa mengubah logika konsensus.
 - [ ] Konsensus "eksekusi" hanya jika SEMUA model aktif: arah sama (bukan hold) dan `confidence` >= `min_confidence` (default 0.6), dengan jumlah model aktif >= `min_ai_models` (minimal 2, tidak bisa diturunkan, dan tidak boleh melebihi jumlah model aktif).
 - [ ] Setiap panggilan AI memakai temperature rendah yang tetap dan mencatat `prompt_version`, agar keputusan dapat diaudit.
+- [ ] Pelajaran aktif milik tiap model (F-08) disisipkan ke prompt model itu saja, dan efeknya diterapkan kode pada opini model itu sebelum konsensus.
 - [ ] Kasus gagal: satu model timeout (> 30 detik), error, atau JSON tidak valid -> dihitung tidak setuju, hasil `skip`, error tersimpan.
 - [ ] Setiap sinyal dan tiap opini AI tersimpan lengkap dengan alasan.
 
@@ -76,6 +81,12 @@ Prioritas: P0 = wajib rilis, P1 = sebaiknya ada, P2 = jika sempat.
 - [ ] SL/TP divalidasi: jarak SL `sl_atr_min`-`sl_atr_max` x ATR (default 0.8-3.0), rasio reward:risk >= `min_rr` (default 1.5); di luar itu -> sinyal diblokir.
 - [ ] Validasi spread, SL/TP, dan perhitungan lot diulang memakai bid/ask terbaru tepat sebelum order dikirim (dan sebelum retry); jika harga sudah melewati SL/TP atau tidak lagi valid -> diblokir (`invalid_sltp`).
 - [ ] Blokir entry jika spread > batas per simbol, di luar sesi trading (default 07:00-20:00 UTC), atau pasar simbol sedang tutup/libur (`market_closed`).
+- [ ] Rem tambahan (semua oleh kode, nilai di `settings`):
+  - Setelah `max_consecutive_losses` (3) kekalahan beruntun -> entry dijeda `loss_pause_hours` (4) jam (`consecutive_losses`).
+  - Maks `max_entries_per_day` (4) entry per hari UTC untuk semua simbol (`max_entries_day`).
+  - Rugi mingguan (dari balance Senin 00:00 UTC) mencapai `max_weekly_loss_pct` (4%) -> tidak ada entry baru sampai Senin berikutnya (`weekly_loss_limit`); posisi terbuka tidak ditutup paksa.
+  - ATR M15 > `volatility_atr_multiple` (3) x median ATR M15 20 hari -> entry diblokir (`volatility_shock`).
+  - Tidak ada entry baru setelah Jumat `friday_cutoff_utc` (18:00 UTC) sampai pasar buka kembali (`friday_cutoff`); posisi terbuka tetap dibiarkan dengan SL.
 - [ ] Rugi harian = (`start_balance` - equity sekarang) / `start_balance`, dengan `start_balance` = balance pada 00:00 UTC (mencakup realized hari ini + floating semua posisi). Jika rugi harian mencapai batas -> kill switch aktif otomatis: tidak ada entry baru sampai hari berikutnya (UTC) atau direset manual. Perlakuan posisi terbuka diatur `kill_switch_mode`:
   - `protect_winners` (default): posisi rugi ditutup; posisi yang sedang untung tidak ditutup paksa, SL-nya dikunci minimal breakeven + buffer, trailing tetap berjalan sampai kena SL/TP. Jika SL tersebut tidak bisa dipasang secara valid (di atas bid untuk BUY / di bawah ask untuk SELL, atau melanggar `stops_level`/`freeze_level`), posisi ditutup.
   - `close_all`: semua posisi ditutup segera.
@@ -100,9 +111,23 @@ Prioritas: P0 = wajib rilis, P1 = sebaiknya ada, P2 = jika sempat.
 - [ ] Ringkasan teks dari AI per periode (terpisah dari keputusan trading), tersimpan.
 - [ ] Menampilkan status terhadap kriteria kelayakan live (bagian 3).
 
+**F-08 Evaluasi & pelajaran AI (otomatis)**
+- [ ] Refleksi: setiap trade tertutup, tiap model yang ikut memutuskan menulis evaluasi singkat atas keputusannya sendiri (alasan entry vs hasil), tersimpan di `ai_reflections`.
+- [ ] Usulan pelajaran: model boleh mengusulkan pelajaran terstruktur dari refleksinya: kondisi atas fitur pasar (mis. `rsi_m15 > 70`, arah buy, XAUUSD) + efek `avoid` (opini model itu menjadi hold saat kondisi cocok) atau `raise_confidence` (butuh confidence >= nilai tertentu saat kondisi cocok). Pelajaran hanya boleh memperketat; usulan yang melonggarkan ditolak kode.
+- [ ] Verifikasi kode: statistik pendukung dihitung ulang kode dari `signals`/`trades`; usulan menjadi `pending` hanya jika didukung >= `lesson_min_trades` (20) trade dan angkanya terbukti memperburuk hasil pada kondisi itu.
+- [ ] Pelajaran per model: hanya berlaku untuk model pengusulnya; maks `lesson_max_active` (10) pelajaran aktif per model; kedaluwarsa setelah `lesson_expiry_weeks` (4) minggu kecuali verifikasi ulang mingguan masih mendukung.
+- [ ] Penentang mingguan: setiap `lesson_review_utc` (Sabtu 00:00 UTC, pasar tutup), model dari penyedia lain (Claude memeriksa pelajaran model OpenAI dan sebaliknya) menilai pelajaran pending dan aktif: mencari bukti tandingan, overfitting, sampel kecil. Penentang hanya bisa menolak pending atau menonaktifkan aktif; tidak bisa menambah atau melonggarkan.
+- [ ] Penerapan otomatis (tanpa persetujuan owner, keputusan owner): pelajaran yang lolos aktif mulai Senin; setiap perubahan set pelajaran membuat `prompt_version` baru, paling banyak sekali seminggu.
+- [ ] Rollback otomatis: jika setelah `rollback_min_trades` (15) trade di versi baru profit factor lebih buruk dari versi sebelumnya, bot kembali ke set pelajaran versi sebelumnya.
+- [ ] Owner bisa mematikan semua pelajaran (`lessons_enabled` = 0) di S-04; bot langsung memakai prompt dasar.
+- [ ] Pembekuan: jika `lessons_frozen` = 1, verifikasi dan penentang hanya mencatat, tidak mengubah set pelajaran. Wajib aktif minimal 2 minggu terakhir uji demo.
+- [ ] Kasus gagal: penentang error/timeout atau tidak ada model aktif dari penyedia lain -> pelajaran pending tidak diaktifkan, set aktif tetap; refleksi gagal -> dicatat, trade tetap tersimpan.
+
 ## 6. Di Luar Scope (jangan dikerjakan)
 - Pasar selain forex/emas di MT5 (kripto, saham), instrumen selain XAUUSD dan EURUSD.
-- Backtesting engine, optimasi parameter otomatis, machine learning/training sendiri.
+- Backtesting engine, optimasi parameter otomatis, machine learning/fine-tuning/training model sendiri (pelajaran tertulis di prompt pada F-08 bukan training dan termasuk scope).
+- Aturan setup entry berbasis kode (strategi = diskresi penuh AI, keputusan owner).
+- Pelajaran AI yang mengubah batas risiko, lot, SL/TP, kill switch, atau rem tambahan.
 - Pending order (limit/stop), membuka posisi berlawanan pada simbol yang sama (strategi hedging; berbeda dengan tipe akun hedging yang diwajibkan F-01), grid, martingale, averaging down.
 - Multi-akun, multi-user, login, akses dashboard dari jaringan/internet.
 - Notifikasi Telegram/email/push; aplikasi mobile.
@@ -121,7 +146,7 @@ Prioritas: P0 = wajib rilis, P1 = sebaiknya ada, P2 = jika sempat.
 - [ASUMSI] Pengguna sudah punya akun demo MT5 dan API key Anthropic + OpenAI.
 - Akun MT5 khusus bot (keputusan owner); trade manual tidak dilakukan di akun yang sama.
 - Kalender ekonomi: default feed JSON mingguan Forex Factory (`nfs.faireconomy.media`), gratis tetapi **tidak resmi**, tanpa jaminan layanan, hanya minggu berjalan. Bisa mati/berubah tanpa pemberitahuan; karena itu ada fail-safe, provider yang dapat diganti, dan jendela blokir manual. Belum diverifikasi dari lingkungan pengembangan ini (jaringan diblokir); diuji di langkah 7.
-- [ASUMSI] Model dipanggil hanya saat candle M15 ditutup (bukan tiap tick) untuk mengendalikan biaya API; estimasi ~210 panggilan/hari (2 simbol x ~52 candle dalam sesi 07:00-20:00 UTC x 2 model, lebih sedikit karena guard memblokir sebelum AI dipanggil).
+- [ASUMSI] Model dipanggil hanya saat candle M15 ditutup (bukan tiap tick) untuk mengendalikan biaya API; estimasi ~210 panggilan/hari dengan 2 model (2 simbol x ~52 candle dalam sesi 07:00-20:00 UTC x 2 model), naik sebanding jumlah model aktif (4 model -> ~420), lebih sedikit karena guard memblokir sebelum AI dipanggil. F-08 menambah 1 refleksi per model per trade tertutup + ~2 panggilan penentang per minggu.
 - Kill switch: lihat F-04 (`protect_winners` default, `close_all` opsional).
 - [ASUMSI] Jika beberapa model memberi SL/TP berbeda: SL dipilih yang terjauh (valid), TP yang terdekat.
 - [ASUMSI] Kriteria kelayakan live: >= 30 trade, profit factor >= 1.3, max drawdown <= 10%, 0 pelanggaran batas risiko, >= 4 minggu.
@@ -131,6 +156,9 @@ Prioritas: P0 = wajib rilis, P1 = sebaiknya ada, P2 = jika sempat.
 - Risiko (diterima owner): posisi dibiarkan melewati rollover (~21:00-22:00 UTC, spread melebar) dan akhir pekan; gap harga saat pasar buka dapat melewati SL sehingga rugi per trade > `risk_per_trade_pct` dan rugi harian > batas. Mitigasi: risiko kecil per trade, maks 2 posisi.
 - Risiko (diterima owner, hanya dicatat): XAUUSD dan EURUSD sama-sama berlawanan dengan USD; dua posisi searah terhadap USD ~ menggandakan eksposur USD (maks 1% total pada default).
 - Catatan kriteria live: >= 30 trade dengan profit factor >= 1.3 adalah gerbang minimum, bukan bukti statistik bahwa strategi menguntungkan; dengan filter konsensus bulat, 30 trade bisa butuh > 4 minggu.
+- Risiko (diterima owner): strategi diskresi penuh AI tanpa aturan setup sulit dievaluasi; alasan keputusan bisa berubah antar-candle. Mitigasi: konsensus, rationale tersimpan, rem tambahan F-04.
+- Risiko (diterima owner): pelajaran otomatis bisa overfitting pada sampel kecil. Mitigasi F-08: hanya memperketat, verifikasi kode >= 20 trade, per model, kedaluwarsa, penentang mingguan, rollback, pembekuan.
+- Risiko: beberapa model dari penyedia yang sama cenderung berpendapat mirip. Mitigasi: `require_provider_diversity`.
 - Dependensi: terminal MT5 + paket Python `MetaTrader5` (hanya Windows), API Anthropic, API OpenAI, feed kalender ekonomi.
 
 ## 9. Pertanyaan Terbuka

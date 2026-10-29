@@ -43,6 +43,9 @@ Keputusan penting:
 | Antarmuka `Broker` + `MockBroker` | Panggil `MetaTrader5` langsung | MT5 hanya jalan di Windows; mock membuat tes jalan di mana pun. |
 | AI hanya memberi arah + SL/TP; lot, batas, eksekusi dihitung kode | Biarkan AI menentukan lot | Risiko tidak boleh bergantung pada keluaran model. |
 | Semua model wajib setuju | Mayoritas | Permintaan owner; lebih konservatif. |
+| Strategi diskresi penuh AI | Setup berbasis aturan + AI sebagai penyaring | Keputusan owner; dikompensasi rem tambahan F-04. |
+| Pelajaran terstruktur (kondisi + efek), efek diterapkan kode | Pelajaran teks bebas di prompt saja | Bisa diverifikasi kode dan dijamin hanya memperketat. |
+| Penentang mingguan silang penyedia | Penentang per trade | Tanpa tambahan latensi/biaya per keputusan. |
 | Panggil AI saat candle M15 tutup | Tiap tick/menit | Biaya API terkendali, cocok timeframe. |
 | Satu proses | Worker terpisah (Celery dsb.) | Terlalu berat untuk pengguna tunggal. |
 | SQLite | PostgreSQL | Tanpa server; data kecil. |
@@ -56,6 +59,7 @@ src/tradingbot/
   broker/              # base.py (Broker), mt5.py, mock.py
   analysis/            # indicators.py, features.py, news.py
   ai/                  # base.py (AIProvider + registry), claude.py, openai_provider.py, prompts.py, schema.py, consensus.py
+  learning/            # reflection.py, lessons.py (usulan, verifikasi, efek), reviewer.py (penentang mingguan), versions.py (prompt_versions, rollback)
   risk/                # sizing.py, validator.py, guard.py (kill switch, limit)
   execution/           # executor.py, position_manager.py, reconcile.py
   journal/             # stats.py, summary.py
@@ -108,6 +112,10 @@ pyproject.toml
 - Daftar model di `settings.ai_models` (JSON `[{provider, model, enabled}]`); konsensus memakai semua entri `enabled`.
 - Prompt menyertakan batas `sl_atr_min`/`sl_atr_max`, `min_rr`, dan aturan sisi SL/TP; skema menolak SL/TP di sisi salah.
 - Ringkasan jurnal (F-07) memakai model aktif pertama di `ai_models`.
+- Total model aktif <= `max_ai_models`; panggilan paralel sehingga latensi = model paling lambat (timeout 30 detik).
+- Pelajaran (F-08) terstruktur: `condition_json` atas kunci fitur di `features_json` (operator `>`, `<`, `>=`, `<=`, `==`, digabung AND), `symbol`/`direction` opsional, efek `avoid` atau `raise_confidence`. Kode mengevaluasi kondisi dan menerapkan efek pada opini model pemilik sebelum konsensus; teks pelajaran juga disisipkan ke prompt model pemilik.
+- Penentang: model aktif pertama dari penyedia lain (jika tidak ada model aktif dari penyedia lain, pelajaran pending tidak diaktifkan); satu panggilan per model pemilik per minggu; keluaran terstruktur (`lesson_id`, `verdict` keep/reject, alasan).
+- Job mingguan dijalankan orkestrator pada `lesson_review_utc`; idempotensi per minggu (`prompt_versions.week_start`).
 
 ## 6. Environment & Deploy
 | Env | Tujuan | Catatan |
@@ -120,7 +128,7 @@ Variabel lingkungan: lihat `.env.example`.
 CI/CD: tidak ada untuk MVP; `ruff` dan `pytest` dijalankan lokal.
 
 ## 7. Strategi Testing
-- Unit: `pytest` untuk indikator, sizing lot, validator SL/TP, konsensus, penjaga risiko, kill switch, parser keluaran AI (termasuk JSON rusak).
+- Unit: `pytest` untuk indikator, sizing lot, validator SL/TP, konsensus, penjaga risiko, kill switch, parser keluaran AI (termasuk JSON rusak), evaluator kondisi dan efek pelajaran, rollback versi prompt.
 - Integrasi: alur lengkap dengan `MockBroker` + AI palsu (siklus candle -> sinyal -> order -> sinkron).
 - Manual di Windows (langkah IPD yang menyentuh MT5): checklist terhadap akun demo.
 - Perintah standar: `pytest`, `ruff check .`, `python -m tradingbot` (jalankan), tidak ada build.

@@ -8,8 +8,8 @@
 | S-01 | Dashboard | `/` | Owner (localhost) | F-01, F-04, F-05, F-06 |
 | S-02 | Sinyal & Opini AI | `/signals` | Owner | F-02, F-03, F-06 |
 | S-03 | Posisi & Riwayat | `/trades` | Owner | F-05, F-06 |
-| S-04 | Risiko & Pengaturan | `/settings` | Owner | F-04, F-06 |
-| S-05 | Jurnal & Performa | `/journal` | Owner | F-07, F-06 |
+| S-04 | Risiko & Pengaturan | `/settings` | Owner | F-04, F-06, F-08 |
+| S-05 | Jurnal & Performa | `/journal` | Owner | F-07, F-06, F-08 |
 
 ## 2. Navigasi Utama
 Bilah navigasi tetap di atas semua layar: Dashboard, Sinyal, Trade, Pengaturan, Jurnal. Kill switch selalu terlihat di header.
@@ -29,9 +29,9 @@ flowchart TD
   A[Candle M15 tutup] --> B{MT5 terhubung?}
   B -- Tidak --> X1[Lewati, status terputus]
   B -- Ya --> C[Hitung fitur M15+H1]
-  C --> D{Guard: kill switch, sesi, pasar tutup, spread, berita/kalender, posisi penuh, model AI kurang?}
+  C --> D{Guard: kill switch, sesi, pasar tutup, cutoff Jumat, spread, volatilitas, berita/kalender, posisi penuh, entry harian, kalah beruntun, rugi mingguan, model AI kurang?}
   D -- Blokir --> X2[Simpan signal decision=blocked + risk_event]
-  D -- Lolos --> E[Tanya Claude + OpenAI paralel]
+  D -- Lolos --> E[Tanya semua model aktif paralel, terapkan efek pelajaran per model]
   E --> F{Semua model aktif buy atau semua sell, conf >= min_confidence, SL/TP di sisi benar?}
   F -- Tidak --> X3[Simpan signal decision=skip]
   F -- Ya --> G[Gabungkan SL/TP, validasi ATR + RR]
@@ -79,6 +79,7 @@ flowchart TD
 **Alur alternatif / gagal:**
 - Timeout 30 detik / error API / JSON tidak valid / SL-TP di sisi salah -> opini ditandai error, dihitung tidak setuju, sinyal `skip`.
 - Salah satu penyedia dinonaktifkan di S-04 -> konsensus hanya dari model aktif; jumlah model aktif harus >= `min_ai_models` (minimal 2), jika kurang AI tidak dipanggil, sinyal `blocked` (`insufficient_ai_models`).
+- `require_provider_diversity` = 1 dan tidak ada model aktif dari salah satu penyedia -> `blocked` (`insufficient_ai_models`).
 
 ### F-04 Manajemen risiko & kill switch
 **Pemicu:** konsensus buy/sell; juga dicek tiap 10 detik untuk batas harian.
@@ -92,7 +93,7 @@ flowchart TD
 **Alur alternatif / gagal:**
 - SL/TP tidak valid -> `blocked` (`invalid_sltp`).
 - Lot hasil hitung < `volume_min` -> `blocked` (`lot_too_small`, risiko terlalu kecil untuk saldo).
-- Maks posisi / spread / sesi / kill switch aktif -> `blocked` dengan alasan masing-masing.
+- Maks posisi / spread / sesi / kill switch aktif / rem tambahan (kalah beruntun, entry harian, rugi mingguan, volatilitas, cutoff Jumat) -> `blocked` dengan alasan masing-masing.
 - Kill switch manual: owner klik tombol (S-01/S-04) -> konfirmasi -> perlakuan posisi sesuai `kill_switch_mode`, status "KILL SWITCH ON". Tombol terpisah "Tutup semua sekarang" selalu menutup semua posisi.
 - Reset kill switch: tombol Reset (S-04) dengan konfirmasi; otomatis juga reset pada hari UTC berikutnya untuk pemicu batas harian.
 
@@ -134,6 +135,38 @@ flowchart TD
 - Tidak ada trade pada periode -> statistik nol, ringkasan "tidak ada trade".
 - AI gagal -> statistik tetap tersimpan, `ai_summary` kosong, tombol coba lagi.
 
+### F-08 Evaluasi & pelajaran AI
+**Pemicu:** trade tertutup (refleksi + usulan); `lesson_review_utc` Sabtu 00:00 UTC (verifikasi, penentang, penerapan).
+**Alur utama:**
+1. Trade tertutup -> tiap model yang ikut memutuskan menulis refleksi (`ai_reflections`) dan boleh mengusulkan pelajaran terstruktur.
+2. Kode memvalidasi usulan (kunci fitur dikenal, hanya memperketat) dan menghitung statistik dari riwayat; lolos `lesson_min_trades` -> `ai_lessons.status = pending`.
+3. Sabtu 00:00 UTC: kode memverifikasi ulang pelajaran pending dan aktif; yang kedaluwarsa -> `expired`.
+4. Penentang (model penyedia lain) menilai: `reject` -> pending menjadi `rejected`, aktif menjadi `disabled`.
+5. Sisa pending -> `active` (maks `lesson_max_active` per model); jika set berubah, `prompt_versions` baru berlaku Senin.
+6. Setiap siklus: efek pelajaran aktif diterapkan pada opini model pemilik sebelum konsensus; `ai_opinions.raw_direction` dan `lessons_applied` dicatat.
+7. Setelah `rollback_min_trades` trade di versi baru: profit factor lebih buruk dari versi sebelumnya -> rollback ke set versi sebelumnya.
+
+**Alur alternatif / gagal:**
+- Usulan melonggarkan / kunci fitur tidak dikenal -> ditolak kode (`rejected`).
+- Penentang error/timeout, atau tidak ada model aktif dari penyedia lain -> pending tetap pending; set aktif tidak berubah.
+- `lessons_enabled` = 0 -> efek dan teks pelajaran tidak dipakai; prompt dasar.
+- `lessons_frozen` = 1 -> langkah 3-5 dan 7 hanya mencatat penilaian, status tidak berubah.
+
+```mermaid
+flowchart TD
+  T[Trade tertutup] --> R[Refleksi tiap model]
+  R --> U[Usulan pelajaran]
+  U --> V{Kode: hanya memperketat dan >= 20 trade?}
+  V -- Tidak --> X[rejected]
+  V -- Ya --> P[pending]
+  P --> W[Sabtu 00:00 UTC: penentang penyedia lain]
+  W -- reject --> X
+  W -- keep --> A[active mulai Senin, prompt_version baru]
+  A --> K{Setelah 15 trade: PF lebih buruk?}
+  K -- Ya --> RB[rollback ke versi sebelumnya]
+  K -- Tidak --> A
+```
+
 ## 5. State Layar
 | Layar | Kosong | Loading | Error | Sukses |
 |---|---|---|---|---|
@@ -141,7 +174,7 @@ flowchart TD
 | S-02 | "Belum ada sinyal. Menunggu candle M15 berikutnya" | Skeleton tabel | Pesan + tombol muat ulang | Tabel sinyal; baris diperluas menampilkan opini tiap AI |
 | S-03 | "Belum ada trade" | Skeleton tabel | Pesan + tombol muat ulang | Tab Terbuka / Riwayat |
 | S-04 | Nilai default terisi | Spinner di tombol Simpan | Pesan validasi per field | Toast "Tersimpan, berlaku siklus berikutnya" |
-| S-05 | "Belum ada data jurnal" | Skeleton | Pesan + tombol coba lagi | Kartu statistik, ringkasan AI, progres kelayakan live |
+| S-05 | "Belum ada data jurnal" | Skeleton | Pesan + tombol coba lagi | Kartu statistik, ringkasan AI, progres kelayakan live, tabel pelajaran per model + hasil penentang |
 
 ## 6. Aturan Lintas Layar
 - Tidak ada login; semua layar hanya via `127.0.0.1`.
