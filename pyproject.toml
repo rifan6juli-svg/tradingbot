@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tradingbot"
+description = "Bot trading MT5 dengan panel multi-AI (Claude + OpenAI); tahap awal akun demo."
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+dynamic = ["version"]
+# Versi dipin (TRD bagian 1); upgrade dilakukan sengaja.
+dependencies = [
+    "alembic==1.20.0",
+    "anthropic==1.14.0",
+    "fastapi==0.143.1",
+    "httpx==0.28.1",
+    "jinja2==3.1.6",
+    "MetaTrader5==5.0.6231; sys_platform == 'win32'",
+    "numpy==2.4.6",
+    "openai==3.31.0",
+    "pandas==3.0.6",
+    "pydantic==2.14.1",
+    "sqlalchemy==2.1.4",
+    "uvicorn==0.54.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==9.1.1",
+    "ruff==0.17.0",
+]
+
+[tool.setuptools.dynamic]
+version = { attr = "tradingbot.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+extend-exclude = ["*.md"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -7,6 +7,7 @@
 |---|---|---|
 | Bahasa/runtime | Python 3.11 (64-bit) | Paket `MetaTrader5` resmi hanya untuk Python di Windows. |
 | Backend & loop bot | FastAPI + asyncio (satu proses bot) | Satu proses menjalankan loop trading, job, dan API dashboard, tanpa orkestrasi tambahan. |
+| Server ASGI | `uvicorn` | Menjalankan aplikasi FastAPI (dashboard + API) di dalam proses bot. |
 | Pengawas | Proses `watchdog` terpisah (Python) | Menjalankan ulang bot saat crash/macet dan mengirim notifikasi (F-09). |
 | Frontend | Jinja2 + HTML/CSS + JS polos (polling 5 detik) | Dashboard lokal sederhana, tanpa build step. |
 | Database | SQLite mode WAL (file `data/bot.db`) + SQLAlchemy 2.0 + Alembic | Satu pengguna, tanpa server DB, migrasi terversi, baca-tulis bersamaan aman. |
