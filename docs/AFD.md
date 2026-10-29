@@ -51,7 +51,8 @@ flowchart TD
 3. Tiap siklus mengambil >= 300 candle M15 dan H1 per simbol; S-01 menampilkan status "terhubung", saldo, equity.
 
 **Alur alternatif / gagal:**
-- Terminal tidak berjalan -> status "terputus" (S-01), coba lagi tiap 10 detik, maks 5 kali, lalu bot berhenti trading dan mencatat `risk_events` (`broker_error`).
+- Terminal tidak berjalan -> status "terputus" (S-01), coba lagi tiap 10 detik (5 kali) lalu tiap 60 detik tanpa batas, catat `risk_events` (`broker_error`); trading lanjut otomatis saat tersambung.
+- Algo Trading nonaktif, akun netting, atau `filling_mode` tidak didukung -> bot menolak start dengan pesan penyebab.
 - Simbol belum terpetakan / tidak ditemukan -> bot menolak start; S-04 menampilkan kandidat dari MT5 (mis. `XAUUSDm`, `GOLD`) untuk dipilih dan disimpan ke `symbol_map`.
 - Tipe akun tidak cocok dengan mode -> bot berhenti (`live_guard`).
 
@@ -71,20 +72,21 @@ flowchart TD
 **Alur utama:**
 1. Kirim paket fitur ke Claude dan OpenAI paralel dengan prompt dan skema yang sama.
 2. Validasi tiap balasan terhadap skema; simpan ke `ai_opinions`.
-3. Konsensus: semua `direction` sama dan bukan `hold` dan `confidence >= 0.6` -> `signals.consensus` = buy/sell; selain itu `none`.
+3. Konsensus: semua `direction` sama dan bukan `hold` dan `confidence >= min_confidence` -> `signals.consensus` = buy/sell; selain itu `none`. `prompt_version` disimpan di sinyal.
 4. Tampil di S-02 dengan alasan tiap AI.
 
 **Alur alternatif / gagal:**
 - Timeout 30 detik / error API / JSON tidak valid -> opini ditandai error, dihitung tidak setuju, sinyal `skip`.
-- Salah satu penyedia dinonaktifkan di S-04 -> konsensus hanya dari model aktif; jumlah model aktif harus >= `min_ai_models` (default 2), jika kurang bot tidak mengeksekusi.
+- Salah satu penyedia dinonaktifkan di S-04 -> konsensus hanya dari model aktif; jumlah model aktif harus >= `min_ai_models` (minimal 2), jika kurang AI tidak dipanggil, sinyal `blocked` (`insufficient_ai_models`).
 
 ### F-04 Manajemen risiko & kill switch
 **Pemicu:** konsensus buy/sell; juga dicek tiap 10 detik untuk batas harian.
 **Alur utama:**
 1. Gabungkan SL (terjauh valid) dan TP (terdekat) dari semua AI.
-2. Validasi jarak SL 0.8-3.0 x ATR dan reward:risk >= 1.5.
-3. Hitung lot dari risiko% dan jarak SL, bulatkan ke `volume_step`.
-4. Pantau rugi harian; jika mencapai batas -> kill switch ON (blokir entry), perlakukan posisi sesuai `kill_switch_mode` (default `protect_winners`: tutup yang rugi, kunci breakeven pada yang untung dan biarkan berjalan; `close_all`: tutup semua), catat `risk_events`.
+2. Validasi jarak SL `sl_atr_min`-`sl_atr_max` x ATR dan reward:risk >= `min_rr`.
+3. Hitung lot (rumus PRD F-04), bulatkan ke bawah ke `volume_step`.
+3a. Tepat sebelum kirim order: ulangi validasi 2-3 dengan bid/ask terbaru.
+4. Pantau rugi harian; jika mencapai batas -> kill switch ON (blokir entry), perlakukan posisi sesuai `kill_switch_mode` (default `protect_winners`: tutup yang rugi, kunci breakeven + buffer pada yang untung dan biarkan berjalan, tutup jika SL itu tidak bisa dipasang valid; `close_all`: tutup semua), catat `risk_events`.
 
 **Alur alternatif / gagal:**
 - SL/TP tidak valid -> `blocked` (`invalid_sltp`).
@@ -97,8 +99,8 @@ flowchart TD
 **Pemicu:** sinyal lolos validasi risiko; loop posisi tiap 10 detik.
 **Alur utama:**
 1. Kirim order market dengan SL, TP, magic number bot; simpan `trades` (`status = open`).
-2. Loop posisi: pada +1R geser SL ke breakeven; setelah +1.5R trailing 1 x ATR.
-3. Rekonsiliasi: posisi yang sudah tertutup di MT5 diperbarui di `trades` (harga tutup, profit, `close_reason`).
+2. Loop posisi: pada +1R geser SL ke breakeven + buffer; setelah +1.5R trailing 1 x ATR; SL tidak pernah mundur; tiap modifikasi mengecek `stops_level`/`freeze_level`.
+3. Rekonsiliasi: posisi yang sudah tertutup di MT5 diperbarui di `trades` (harga tutup, profit, `close_reason` sesuai aturan BSD).
 
 **Alur alternatif / gagal:**
 - Order ditolak/requote -> 1 retry, lalu `trades.status = rejected`, `risk_events` (`broker_error`).
@@ -116,6 +118,7 @@ flowchart TD
 - Backend tidak merespons -> banner merah "Bot tidak terjangkau", data terakhir diberi tanda usang.
 - Nilai pengaturan di luar batas (mis. risiko > 2%) -> ditolak dengan pesan validasi; tidak tersimpan.
 - Token tidak ada/salah -> 401, pesan "Token lokal tidak valid".
+- Header `Host` asing -> 400 (anti DNS rebinding).
 
 ### F-07 Jurnal & evaluasi performa
 **Pemicu:** akhir hari UTC (otomatis), atau tombol "Buat ringkasan" di S-05.

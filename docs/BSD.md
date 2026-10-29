@@ -35,14 +35,14 @@ Key baku dan default:
 | mode | demo | demo, live |
 | kill_switch | 0 | 0, 1 |
 | kill_switch_reason | (kosong) | teks |
-| symbols | XAUUSD,EURUSD | daftar dipisah koma |
-| symbol_map | `{"XAUUSD":"XAUUSD","EURUSD":"EURUSD"}` | JSON; nilai harus ada di MT5 |
+| symbol_map | `{"XAUUSD":"XAUUSD","EURUSD":"EURUSD"}` | JSON; kunci = simbol kanonik yang diperdagangkan (hanya XAUUSD, EURUSD), nilai = nama di broker dan harus ada di MT5 |
+| commission_per_lot | 0 | >= 0, mata uang akun, per sisi |
 | breakeven_buffer_points | 0 (tambahan di luar spread + komisi) | 0 - 200 |
 | kill_switch_mode | protect_winners | protect_winners, close_all |
-| min_ai_models | 2 | 1 - 3 (nilai 1 hanya diizinkan saat mode demo) |
+| min_ai_models | 2 | 2 - 4 (minimal 2, tidak bisa diturunkan) |
 | manual_blackouts | `[]` | JSON daftar `{start_utc, end_utc, note}` |
 | news_provider | faireconomy | nama provider terdaftar |
-| claude_model / openai_model | dari `.env` | teks ID model |
+| claude_model / openai_model | nilai awal dari `.env` saat seed | teks ID model; `settings` menang setelah seed |
 | risk_per_trade_pct | 0.5 | 0.1 - 2.0 |
 | max_daily_loss_pct | 2.0 | 0.5 - 5.0 |
 | max_open_positions | 2 | 1 - 5 |
@@ -78,6 +78,7 @@ Fitur: F-02, F-03, F-04 | Tujuan: satu baris per simbol per candle M15 yang diev
 | timeframe | TEXT | NOT NULL, CHECK in ('M15','H1') | Entry selalu 'M15' di MVP |
 | bar_time | DATETIME | NOT NULL | Waktu buka candle yang ditutup (UTC) |
 | features_json | TEXT | NOT NULL | Paket fitur yang dikirim ke AI |
+| prompt_version | TEXT | NOT NULL | Versi prompt AI (mis. `v1`) |
 | consensus | TEXT | NOT NULL, CHECK in ('buy','sell','none') | |
 | decision | TEXT | NOT NULL, CHECK in ('execute','skip','blocked') | |
 | block_reason | TEXT | NULL | Salah satu `risk_events.type` jika `blocked` |
@@ -95,7 +96,7 @@ Fitur: F-03
 |---|---|---|---|
 | id | INTEGER | PK | |
 | signal_id | INTEGER | FK -> signals.id, NOT NULL | |
-| provider | TEXT | NOT NULL, CHECK in ('claude','openai') | |
+| provider | TEXT | NOT NULL | Nama di registry, mis. `claude`, `openai` (tanpa CHECK agar bisa ditambah) |
 | model | TEXT | NOT NULL | ID model yang dipakai |
 | direction | TEXT | NULL, CHECK in ('buy','sell','hold') | NULL jika error |
 | confidence | REAL | NULL, CHECK 0..1 | |
@@ -106,7 +107,7 @@ Fitur: F-03
 | error | TEXT | NULL | Terisi jika timeout/JSON tidak valid |
 | created_at | DATETIME | NOT NULL | |
 
-Indeks: UNIQUE(`signal_id`, `provider`).
+Indeks: UNIQUE(`signal_id`, `provider`, `model`).
 
 ### trades
 Fitur: F-05
@@ -133,6 +134,13 @@ Fitur: F-05
 | updated_at | DATETIME | NOT NULL | |
 
 Indeks: INDEX(`status`), INDEX(`symbol`, `status`), INDEX(`closed_at`).
+
+Aturan `close_reason` (ditentukan saat rekonsiliasi):
+- `tp`: deal penutup ditandai TP oleh broker.
+- `kill_switch`: ditutup oleh `trigger_kill_switch` atau tombol panic.
+- `manual`: ditutup bukan oleh bot (deal tanpa magic/komentar bot).
+- Ditutup oleh SL: `sl` jika SL masih di level awal; `breakeven` jika SL terakhir = level breakeven + buffer; `trailing` jika SL terakhir sudah melewati breakeven karena trailing.
+- `unknown`: tidak bisa ditentukan.
 
 ### risk_events
 Fitur: F-02, F-04, F-05
@@ -180,13 +188,13 @@ Indeks: UNIQUE(`period`, `period_start`).
 | ai direction | buy, sell, hold | Saran AI |
 | signals.decision | execute, skip, blocked | Dieksekusi / tidak ada konsensus / diblokir aturan |
 | trades.status | open -> closed; rejected (final) | Transisi: open->closed saja |
-| risk_event_type | daily_loss_limit, kill_switch_on, kill_switch_off, max_positions, spread_too_wide, news_block, outside_session, invalid_sltp, lot_too_small, broker_error, ai_error, live_guard | Jenis peristiwa risiko |
+| risk_event_type | daily_loss_limit, kill_switch_on, kill_switch_off, max_positions, spread_too_wide, news_block, outside_session, invalid_sltp, lot_too_small, insufficient_ai_models, sltp_unplaceable, broker_error, ai_error, live_guard | Jenis peristiwa risiko |
 
 ## 5. Aturan Akses (otorisasi data)
 Satu peran (owner), hanya dari `127.0.0.1`.
 | Tabel | Baca | Tulis via API | Tulis oleh bot |
 |---|---|---|---|
-| settings | ya | ya (PUT /api/settings, dengan token) | `kill_switch*` |
+| settings | ya | ya (PUT /api/settings, dengan token), kecuali `mode`, `kill_switch`, `kill_switch_reason` | `kill_switch*` (juga lewat POST /api/kill-switch) |
 | news_events | ya | tidak | ya |
 | signals, ai_opinions | ya | tidak | ya |
 | trades | ya | tidak (penutupan lewat kill switch) | ya |
@@ -196,7 +204,7 @@ Satu peran (owner), hanya dari `127.0.0.1`.
 `mode` tidak bisa diubah ke `live` lewat API; hanya lewat penjaga di TRD bagian 5 (perubahan manual `.env` + settings).
 
 ## 6. Kontrak API Ringkas
-Semua endpoint `GET` tanpa token; `PUT/POST` wajib header `X-Local-Token`.
+Semua request dengan header `Host` asing -> 400. Endpoint `GET` tanpa token; `PUT/POST` wajib header `X-Local-Token`.
 | Method | Path | Request | Response sukses | Error |
 |---|---|---|---|---|
 | GET | /api/status | - | 200 `{ mode, kill_switch, mt5_connected, balance, equity, daily_pnl_pct, open_positions, last_cycle_at }` | 500 |
@@ -205,7 +213,7 @@ Semua endpoint `GET` tanpa token; `PUT/POST` wajib header `X-Local-Token`.
 | GET | /api/trades | `?status&limit` | 200 `{ items: [trade] }` | 400 |
 | GET | /api/risk-events | `?limit` | 200 `{ items: [risk_event] }` | 400 |
 | GET | /api/settings | - | 200 `{ key: value, ... }` | 500 |
-| PUT | /api/settings | `{ key: value, ... }` (subset) | 200 `{ updated: [keys] }` | 400 (di luar batas), 401, 403 (coba set `mode=live`) |
+| PUT | /api/settings | `{ key: value, ... }` (subset) | 200 `{ updated: [keys] }` | 400 (di luar batas), 401, 403 (coba ubah `mode`, `kill_switch`, `kill_switch_reason`) |
 | POST | /api/kill-switch | `{ on: bool, panic?: bool }` | 200 `{ kill_switch, closed_positions, protected_positions }` | 401 |
 | GET | /api/symbols/candidates | `?canonical=XAUUSD` | 200 `{ items: [broker_symbol] }` | 503 (MT5 terputus) |
 | GET | /api/journal | `?period=daily\|weekly` | 200 `{ items: [journal_entry], live_readiness }` | 400 |

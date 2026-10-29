@@ -41,8 +41,8 @@ Total pengerjaan ~61 jam (~6 minggu pada ~10 jam/minggu), lalu >= 4 minggu uji d
 
 - [ ] **5. MT5Broker [Windows]**
   - Rujukan: F-01, TRD bagian 9
-  - Kerjakan: implementasi `Broker` di `broker/mt5.py`, normalisasi waktu ke UTC, pemetaan simbol via `symbol_map` + pencarian kandidat (`symbols_get`), reconnect (10 detik, maks 5 kali), skrip `scripts/check_mt5.py` yang mencetak akun/tipe/candle
-  - Selesai jika: di Windows, skrip mencetak saldo, tipe akun DEMO, dan 300 candle M15/H1 XAUUSD dan EURUSD; mematikan MT5 memicu status terputus dan reconnect; kontrak tes `Broker` yang sama lolos untuk Mock dan MT5
+  - Kerjakan: implementasi `Broker` di `broker/mt5.py`, normalisasi waktu ke UTC, pemetaan simbol via `symbol_map` + pencarian kandidat (`symbols_get`), reconnect (10 detik x 5, lalu tiap 60 detik tanpa batas, lanjut otomatis), cek saat start: Algo Trading aktif, akun hedging, `filling_mode`; validasi `stops_level`/`freeze_level`; skrip `scripts/check_mt5.py` yang mencetak akun/tipe/margin mode/filling/candle (TRD 5a)
+  - Selesai jika: di Windows, skrip mencetak saldo, tipe akun DEMO, dan 300 candle M15/H1 XAUUSD dan EURUSD; mematikan MT5 memicu status terputus dan reconnect, menyalakan kembali setelah > 1 menit membuat bot lanjut sendiri; Algo Trading dimatikan -> start ditolak dengan pesan; kontrak tes `Broker` yang sama lolos untuk Mock dan MT5
 
 ## Fase 2 - Alur Inti
 
@@ -58,7 +58,7 @@ Total pengerjaan ~61 jam (~6 minggu pada ~10 jam/minggu), lalu >= 4 minggu uji d
 
 - [ ] **8. Antarmuka AI + adapter Claude**
   - Rujukan: F-03, TRD bagian 1, 4
-  - Kerjakan: `ai/schema.py` (Pydantic: direction, confidence, sl_price, tp_price, rationale), `ai/prompts.py`, `AIProvider` base + registry (penyedia baru tanpa ubah konsensus), `claude.py` dengan output terstruktur, timeout 30 detik, ID model dari konfigurasi
+  - Kerjakan: `ai/schema.py` (Pydantic: direction, confidence, sl_price, tp_price, rationale), `ai/prompts.py`, `AIProvider` base + registry (penyedia baru tanpa ubah konsensus), `claude.py` dengan output terstruktur, timeout 30 detik, temperature rendah tetap, `prompt_version`, ID model dari `settings` (TRD 5b)
   - Selesai jika: tes dengan klien palsu: balasan valid di-parse; JSON rusak / timeout menghasilkan `AIError` terkontrol; 1 panggilan nyata manual ke Claude mengembalikan opini valid
 
 - [ ] **9. Adapter OpenAI**
@@ -68,27 +68,27 @@ Total pengerjaan ~61 jam (~6 minggu pada ~10 jam/minggu), lalu >= 4 minggu uji d
 
 - [ ] **10. Konsensus & penyimpanan sinyal**
   - Rujukan: F-03, BSD `signals`, `ai_opinions`
-  - Kerjakan: panggilan paralel (`asyncio.gather`), `consensus.py` (semua model aktif sama arah, bukan hold, conf >= `min_confidence`, jumlah model aktif >= `min_ai_models`), simpan `signals` + `ai_opinions`, idempotensi per (`symbol`,`timeframe`,`bar_time`)
+  - Kerjakan: panggilan paralel (`asyncio.gather`), `consensus.py` (semua model aktif sama arah, bukan hold, conf >= `min_confidence`, jumlah model aktif >= `min_ai_models`, kurang -> `blocked` `insufficient_ai_models` tanpa memanggil AI), simpan `signals` (dengan `prompt_version`) + `ai_opinions`, idempotensi per (`symbol`,`timeframe`,`bar_time`)
   - Selesai jika: tes tabel kebenaran (setuju / beda arah / satu hold / satu error / satu nonaktif) lolos; sinyal yang sama tidak tersimpan dua kali
 
 - [ ] **11. Risk manager: SL/TP & lot**
   - Rujukan: F-04, BSD `settings`
-  - Kerjakan: gabung SL terjauh + TP terdekat, validasi jarak SL (ATR) dan RR, hitung lot dari risiko% dengan `volume_step/min/max`, guard spread dan sesi
-  - Selesai jika: tes: SL di luar 0.8-3.0 x ATR ditolak; RR < 1.5 ditolak; lot terhitung benar untuk XAUUSD dan EURUSD (contoh tetap); lot < min diblokir (`lot_too_small`)
+  - Kerjakan: gabung SL terjauh + TP terdekat, validasi jarak SL (ATR) dan RR dari `settings`, hitung lot dengan rumus PRD F-04 (`tick_size`, `tick_value`, `commission_per_lot`, bulat ke bawah), fungsi validasi ulang dengan bid/ask terbaru, guard spread dan sesi
+  - Selesai jika: tes: SL di luar `sl_atr_min`-`sl_atr_max` ditolak; RR < `min_rr` ditolak; lot benar untuk XAUUSD dan EURUSD (contoh tetap, termasuk kontrak 100 oz) dan risiko aktual tidak pernah > target; lot < min diblokir (`lot_too_small`); harga terbaru melewati SL -> diblokir (`invalid_sltp`)
 
 - [ ] **12. Batas harian & kill switch**
   - Rujukan: F-04, BSD `daily_stats`, `risk_events`
-  - Kerjakan: `daily_stats` awal hari UTC, hitung rugi harian (realized + floating), pemicu otomatis, fungsi `trigger_kill_switch(reason, mode)` (`protect_winners`: tutup yang rugi, SL ke minimal breakeven untuk yang untung; `close_all`: tutup semua; set `settings.kill_switch`), tombol panic tutup semua, reset manual dan otomatis hari berikutnya
-  - Selesai jika: tes MockBroker: rugi mencapai 2% -> mode `protect_winners`: posisi rugi tertutup, posisi untung tetap hidup dengan SL >= breakeven; mode `close_all`: semua tertutup; entry berikutnya diblokir, `risk_events` tercatat; reset berfungsi
+  - Kerjakan: `daily_stats` awal hari UTC, hitung rugi harian (realized + floating), pemicu otomatis, fungsi `trigger_kill_switch(reason, mode)` (`protect_winners`: tutup yang rugi, SL ke minimal breakeven + buffer untuk yang untung, tutup jika SL tidak bisa dipasang valid (`sltp_unplaceable`); `close_all`: tutup semua; set `settings.kill_switch`), tombol panic tutup semua, reset manual dan otomatis hari berikutnya
+  - Selesai jika: tes MockBroker: rugi mencapai 2% -> mode `protect_winners`: posisi rugi tertutup, posisi untung tetap hidup dengan SL >= breakeven + buffer, posisi untung tipis yang SL-nya tidak valid ikut ditutup; mode `close_all`: semua tertutup; entry berikutnya diblokir, `risk_events` tercatat; reset berfungsi
 
 - [ ] **13. Eksekusi order & rekonsiliasi**
   - Rujukan: F-05, BSD `trades`
-  - Kerjakan: `executor.py` (order market + SL/TP + magic, 1 retry, status `rejected`), `reconcile.py` (sinkron `trades` dengan posisi/deal broker; ambil alih posisi ber-magic saat start)
+  - Kerjakan: `executor.py` (validasi ulang harga terbaru, order market + SL/TP + magic + `type_filling` dari broker, 1 retry, status `rejected`), `reconcile.py` (sinkron `trades` dengan posisi/deal broker; ambil alih posisi ber-magic saat start; `close_reason` sesuai aturan BSD `trades`)
   - Selesai jika: tes MockBroker: order tersimpan `open`; ditolak -> `rejected` tanpa retry kedua; restart mengambil alih posisi; posisi tertutup di broker -> `closed` dengan profit dan `close_reason`
 
 - [ ] **14. Breakeven & trailing**
   - Rujukan: F-05
-  - Kerjakan: `position_manager.py` (+1R -> SL ke breakeven + buffer spread/komisi/`breakeven_buffer_points`; +1.5R -> trailing 1 x ATR; SL hanya bergerak searah menguntungkan)
+  - Kerjakan: `position_manager.py` (+1R -> SL ke breakeven + buffer spread/komisi/`breakeven_buffer_points`; +1.5R -> trailing 1 x ATR; SL hanya bergerak searah menguntungkan, cek `stops_level`/`freeze_level` sebelum modifikasi)
   - Selesai jika: tes simulasi harga menunjukkan SL bergeser tepat pada ambang, berada di atas entry (BUY) / di bawah entry (SELL) sebesar buffer, dan tidak pernah mundur
 
 - [ ] **15. Orkestrator end-to-end (demo) [Windows]**
@@ -100,8 +100,8 @@ Total pengerjaan ~61 jam (~6 minggu pada ~10 jam/minggu), lalu >= 4 minggu uji d
 
 - [ ] **16. Web skeleton & S-01 Dashboard**
   - Rujukan: F-06, AFD S-01, DBD bagian 1-3, BSD `/api/status`
-  - Kerjakan: FastAPI bind 127.0.0.1, template dasar (header, navigasi, badge mode, tombol kill switch), `/api/status`, S-01 dengan polling 5 detik, banner "bot tidak terjangkau"
-  - Selesai jika: S-01 menampilkan status nyata dari MockBroker; mematikan backend memunculkan banner; tes API status lolos
+  - Kerjakan: FastAPI bind 127.0.0.1, middleware cek header `Host`, sisipkan `DASHBOARD_TOKEN` ke meta tag halaman, template dasar (header, navigasi, badge mode, tombol kill switch), `/api/status`, S-01 dengan polling 5 detik, banner "bot tidak terjangkau"
+  - Selesai jika: S-01 menampilkan status nyata dari MockBroker; mematikan backend memunculkan banner; tes API status lolos; request dengan `Host: evil.com` -> 400
 
 - [ ] **17. S-02 Sinyal & Opini AI**
   - Rujukan: F-03, F-06, AFD S-02, BSD `/api/signals`
@@ -115,7 +115,7 @@ Total pengerjaan ~61 jam (~6 minggu pada ~10 jam/minggu), lalu >= 4 minggu uji d
   - Rujukan: F-04, F-06, AFD S-04, BSD `settings`, `/api/settings`, `/api/kill-switch`, TRD bagian 5
   - Kerjakan tambahan: pilih `symbol_map` dari kandidat MT5, pilih `kill_switch_mode`, atur model AI aktif dan ID model
   - Tambahan: input `breakeven_buffer_points`
-  - Selesai jika: ubah risiko tersimpan dan berlaku siklus berikutnya; nilai di luar batas ditolak dengan pesan; tanpa token -> 401; coba set `mode=live` -> 403; kill switch dan reset dengan dialog konfirmasi bekerja
+  - Selesai jika: ubah risiko tersimpan dan berlaku siklus berikutnya; nilai di luar batas ditolak dengan pesan; tanpa token -> 401; coba ubah `mode`/`kill_switch` lewat PUT -> 403; kill switch dan reset dengan dialog konfirmasi bekerja
 
 - [ ] **20. Statistik jurnal & kelayakan live**
   - Rujukan: F-07, BSD `daily_stats`, `journal_entries`
@@ -169,5 +169,7 @@ Total pengerjaan ~61 jam (~6 minggu pada ~10 jam/minggu), lalu >= 4 minggu uji d
 
 ## Catatan & Utang Teknis
 <!-- Tambahkan: tanggal - langkah - catatan/keputusan -->
+- 2026-10-29 - init - Revisi 2 (audit): rumus lot lengkap + bulat ke bawah, validasi ulang harga sebelum order, SL tidak valid -> tutup, reconnect tanpa batas, cek Algo Trading/hedging/filling, `stops_level`, hapus `symbols`, `settings` menang atas `.env`, provider AI tanpa CHECK, `min_ai_models` minimal 2, anti DNS rebinding + token di halaman, `prompt_version`, aturan `close_reason`. Keputusan owner: posisi melewati akhir pekan hanya dengan SL; korelasi USD hanya dicatat.
+- 2026-10-29 - utang - Belum ada cara resmi mengubah `mode` ke `live` (API menolak). Saat live disetujui, buat perintah CLI terpisah yang menjalankan penjaga TRD 5. Di luar scope MVP.
 - 2026-10-29 - init - Revisi 1: simbol fleksibel (`symbol_map`), `kill_switch_mode`, sumber kalender dijelaskan + provider/manual blackout, `min_ai_models`, ID model dapat diatur.
 - 2026-10-29 - init - Dokumen dibuat. Belum ada kode. Menunggu persetujuan owner sebelum langkah 1.

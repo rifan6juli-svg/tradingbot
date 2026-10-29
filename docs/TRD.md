@@ -80,7 +80,7 @@ pyproject.toml
 - Dilarang: API key di kode/log, SQL mentah tanpa parameter, memanggil `MetaTrader5` di luar `broker/mt5.py`, mengirim order tanpa SL/TP, menghapus penjaga risiko demi tes, mengubah `mode` ke live dari kode.
 
 ## 5. Keamanan
-- Autentikasi: tidak ada login; server bind `127.0.0.1` saja. Endpoint tulis (PUT/POST) wajib header `X-Local-Token` = `DASHBOARD_TOKEN` dari `.env` (mencegah halaman web lain menembak localhost).
+- Autentikasi: tidak ada login; server bind `127.0.0.1` saja. Semua request dengan header `Host` selain `127.0.0.1:8000`/`localhost:8000` ditolak 400 (anti DNS rebinding). Endpoint tulis (PUT/POST) wajib header `X-Local-Token` = `DASHBOARD_TOKEN` dari `.env`; server menyisipkan token ke halaman dashboard yang disajikannya (meta tag), JS membacanya dari sana. Tanpa CORS.
 - Otorisasi: satu peran (owner); lihat BSD bagian 5.
 - Penjaga mode live (semua harus benar, jika tidak bot menolak start):
   1. `LIVE_ENABLED=true` di `.env`
@@ -88,7 +88,20 @@ pyproject.toml
   3. Tipe akun MT5 = real (`account_info.trade_mode`) konsisten dengan mode
   4. Default dan fallback selalu `demo`; ketidakcocokan -> bot berhenti dan mencatat `risk_events.type = 'live_guard'`.
 - Data sensitif: API key & token hanya di `.env` (di-gitignore); log disaring dari key.
+- Sumber konfigurasi: tabel `settings` adalah sumber kebenaran runtime; nilai `.env` (mis. `ANTHROPIC_MODEL`, `OPENAI_MODEL`, `NEWS_PROVIDER`) hanya dipakai sebagai nilai awal saat seed. Secret (API key, token, `LIVE_ENABLED`) hanya di `.env`, tidak pernah di `settings`.
 - Secrets: lewat environment variable, daftar di `.env.example`: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_MODEL` (contoh `claude-sonnet-5-5`), `OPENAI_MODEL` (wajib diisi owner), `NEWS_PROVIDER`, `MT5_PATH` (opsional), `DASHBOARD_TOKEN`, `LIVE_ENABLED`, `DB_PATH`.
+
+## 5a. Aturan Broker MT5
+- Akun wajib bertipe hedging (`account_info.margin_mode`); netting -> tolak start.
+- Algo Trading terminal wajib aktif (`terminal_info.trade_allowed`); jika tidak -> tolak start dengan pesan.
+- `type_filling` order dipilih dari `symbol_info.filling_mode` (FOK/IOC/RETURN), bukan dikodekan tetap.
+- Setiap SL/TP baru (order maupun modifikasi) divalidasi terhadap `trade_stops_level` dan `trade_freeze_level`.
+- Lot dihitung dengan `trade_tick_size`, `trade_tick_value`, komisi per lot (pengaturan), dibulatkan ke bawah ke `volume_step`.
+- Reconnect: 10 detik x 5 kali, lalu tiap 60 detik tanpa batas; lanjut otomatis.
+
+## 5b. Aturan AI
+- Temperature tetap rendah (0-0.2) per penyedia; `prompt_version` (string, mis. `v1`) didefinisikan di `ai/prompts.py` dan disimpan di tiap `signals`.
+- Penyedia didaftarkan di registry; `ai_opinions.provider` + `model` bebas (tanpa CHECK), sehingga penyedia atau model tambahan tidak butuh migrasi.
 
 ## 6. Environment & Deploy
 | Env | Tujuan | Catatan |
